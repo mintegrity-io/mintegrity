@@ -6,7 +6,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",  # Log message format
     datefmt="%Y-%m-%dT%H:%M:%S", # ISO 8601 timestamp format
     handlers=[
-        logging.FileHandler("app.log"),  # Log to a file
         logging.StreamHandler()  # Log to the console
     ]
 )

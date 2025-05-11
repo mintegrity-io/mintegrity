@@ -1,14 +1,13 @@
 import re
 import time
-from typing import Dict, Set
-
 import requests
 import os
-import logging
 
 from dotenv import load_dotenv
 
-from logging_config import get_logger
+from scripts.commons.logging_config import get_logger
+from scripts.commons import checks
+from smart_contracts_metadata import *
 
 log = get_logger()
 
@@ -22,7 +21,7 @@ if not ALCHEMY_API_KEY:
     raise ValueError("ALCHEMY_API_KEY is not set in the environment variables.")
 
 
-def get_smart_contracts(wallet_address: str, network: str = "eth-mainnet") -> set[str]:
+def get_smart_contracts_by_issuer(wallet_address: str, network: str = "eth-mainnet") -> set[SmartContract]:
     """
     Fetches a list of smart contracts created by a specific wallet
 
@@ -33,7 +32,7 @@ def get_smart_contracts(wallet_address: str, network: str = "eth-mainnet") -> se
 
     log.info(f"Fetching smart contracts for wallet: {wallet_address} on network: {network}")
 
-    check_ethereum_address_validity(wallet_address)
+    checks.check_ethereum_address_validity(wallet_address)
 
     # Alchemy API endpoint
     url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
@@ -104,20 +103,9 @@ def get_smart_contracts(wallet_address: str, network: str = "eth-mainnet") -> se
 
     log.info(f"Found {len(contract_addresses)} smart contracts deployed by {wallet_address}")
     log.debug(f"Smart contracts: {contract_addresses}")
-    return contract_addresses
 
-
-def check_ethereum_address_validity(address: str) -> None:
-    """
-    Validates if the given string is a valid Ethereum address.
-
-    :param address: The Ethereum address to validate
-    :return: True if valid, False otherwise
-    """
-    if not bool(re.match(r"^0x[a-fA-F0-9]{40}$", address)):
-        raise ValueError(f"Invalid Ethereum address: {address}")
-    else:
-        log.info(f"Valid Ethereum address: {address}")
+    contracts: set[SmartContract] = {SmartContract(address=address) for address in contract_addresses}
+    return contracts
 
 
 def print_timestamp(timestamp: int) -> str:
@@ -168,23 +156,23 @@ def get_block_by_timestamp(timestamp: int, network: str = "eth-mainnet") -> str:
         raise Exception(f"Error: {response.status_code}, {response.text}")
 
 
-def get_contract_interactions(
-        contract_address: str,
+def get_address_interactions(
+        address: str,
         from_timestamp: int,
         to_timestamp: int,
         network: str = "eth-mainnet"
-) -> dict[str, set[str]]:
+) -> dict[InteractionDirection, set[str]]:
     """
-    Fetches unique addresses that interacted with a specific contract during a time period.
+    Fetches unique addresses that interacted with a address contract during a time period. Can be used for both wallets and contracts.
 
-    :param contract_address: The contract address to query
+    :param address: The address get interactions for incoming and outgoing transactions
     :param from_timestamp: Start timestamp in Unix seconds
     :param to_timestamp: End timestamp in Unix seconds
     :param network: The Ethereum network (e.g., 'eth-mainnet', 'eth-goerli')
     :return: A set of unique addresses that interacted with the contract
     """
-    log.info(f"Fetching interactions for contract: {contract_address} from {print_timestamp(from_timestamp)} to {print_timestamp(to_timestamp)} on network: {network}")
-    check_ethereum_address_validity(contract_address)
+    log.info(f"Fetching interactions for address: {address} from {print_timestamp(from_timestamp)} to {print_timestamp(to_timestamp)} on network: {network}")
+    checks.check_ethereum_address_validity(address)
 
     # Convert timestamps to block numbers using the blocks-by-timestamp endpoint
     from_block = get_block_by_timestamp(from_timestamp, network)
@@ -197,43 +185,37 @@ def get_contract_interactions(
 
     interacted_addresses = dict()
 
-    # Get incoming transactions (to the contract)
+    # Get incoming transactions (to the address)
     incoming_addresses = get_interacting_addresses(
-        url, contract_address, from_block, to_block, "to", ["external", "internal", "erc20", "erc721", "erc1155"]
+        url, address, from_block, to_block, InteractionDirection.INCOMING, ["external", "internal", "erc20", "erc721", "erc1155"]
     )
-    interacted_addresses["to"] = incoming_addresses
+    interacted_addresses[InteractionDirection.INCOMING] = incoming_addresses
 
-    # Get outgoing transactions (from the contract)
+    # Get outgoing transactions (from the address)
     outgoing_addresses = get_interacting_addresses(
-        url, contract_address, from_block, to_block, "from", ["external", "internal", "erc20", "erc721", "erc1155"]
+        url, address, from_block, to_block, InteractionDirection.OUTGOING, ["external", "internal", "erc20", "erc721", "erc1155"]
     )
-    interacted_addresses["from"] = outgoing_addresses
+    interacted_addresses[InteractionDirection.OUTGOING] = outgoing_addresses
 
-    # Remove the contract address itself from the results
-    if contract_address.lower() in interacted_addresses["to"]:
-        interacted_addresses["to"].remove(contract_address.lower())
-    if contract_address.lower() in interacted_addresses["from"]:
-        interacted_addresses["from"].remove(contract_address.lower())
-
-    total_size = len(interacted_addresses["to"]) + len(interacted_addresses["from"])
-    log.info(f"Found {total_size} unique addresses interacting with contract address {contract_address} between {from_timestamp} and {to_timestamp}")
+    total_size = len(interacted_addresses[InteractionDirection.INCOMING]) + len(interacted_addresses[InteractionDirection.OUTGOING])
+    log.info(f"Found {total_size} unique addresses interacting with address {address} between {from_timestamp} and {to_timestamp}")
     log.debug(interacted_addresses)
     return interacted_addresses
 
 
 def get_interacting_addresses(
         url: str,
-        contract_address: str,
+        address: str,
         from_block: str,
         to_block: str,
-        direction: str,
+        direction: InteractionDirection,
         categories: list[str]
 ) -> set[str]:
     """
     Get addresses interacting with a contract in a specific direction.
 
     :param url: Alchemy API URL
-    :param contract_address: The contract address
+    :param address: The target address (contract or wallet) to get interactions for
     :param from_block: Start block in hex
     :param to_block: End block in hex
     :param direction: 'from' or 'to' indicating direction of interaction
@@ -253,10 +235,12 @@ def get_interacting_addresses(
         }
 
         # Set direction parameter (fromAddress or toAddress)
-        if direction == "from":
-            params["fromAddress"] = contract_address
+        if direction == InteractionDirection.OUTGOING:
+            params["fromAddress"] = address
+        elif direction == InteractionDirection.INCOMING:
+            params["toAddress"] = address
         else:
-            params["toAddress"] = contract_address
+            raise ValueError("Invalid direction. Supported directions: " + ", ".join([d.name for d in InteractionDirection]))
 
         if page_key:
             params["pageKey"] = page_key
@@ -278,9 +262,9 @@ def get_interacting_addresses(
 
                 # Extract the addresses from the opposite direction
                 for transfer in transfers:
-                    if direction == "from" and transfer.get("to"):
+                    if direction == InteractionDirection.OUTGOING and transfer.get("to"):
                         addresses.add(transfer["to"].lower())
-                    elif direction == "to" and transfer.get("from"):
+                    elif direction == InteractionDirection.INCOMING and transfer.get("from"):
                         addresses.add(transfer["from"].lower())
 
                 # Check for more pages
