@@ -2,33 +2,34 @@ from dataclasses import dataclass
 from enum import IntEnum
 
 from scripts.commons.logging_config import get_logger
+from scripts.commons.model import *
 
 log = get_logger()
 
 
 class NodeType(IntEnum):
+    # TODO I want to store the type of address in the address object and not in the node
     WALLET = 0
     CONTRACT = 1
 
 
 @dataclass(frozen=True)
 class Node:
-    address: str
+    address: Address
     type: NodeType
 
 
 @dataclass(frozen=True)
-class Transaction:
-    tx_hash: str
+class Edge:
     from_node: Node
     to_node: Node
-    value: float
-    timestamp: int
+    transaction: Transaction
+
 
 
 class TransactionsGraph:
     nodes: set[Node] = {}
-    edges: set[Transaction] = {}
+    edges: set[Edge] = {}
 
     def add_node(self, node: Node):
         if node not in self.nodes:
@@ -37,6 +38,7 @@ class TransactionsGraph:
         else:
             log.debug(f"Node {node.address} already exists. Skipping addition")
 
+    # TODO REWORK THIS - is no more valid
     def add_edge(self, transaction: Transaction):
         if transaction not in self.edges:
             self.edges.add(transaction)

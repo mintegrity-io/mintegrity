@@ -1,4 +1,3 @@
-import re
 import time
 import requests
 import os
@@ -6,8 +5,7 @@ import os
 from dotenv import load_dotenv
 
 from scripts.commons.logging_config import get_logger
-from scripts.commons import checks
-from smart_contracts_metadata import *
+from scripts.commons.model import *
 
 log = get_logger()
 
@@ -159,7 +157,7 @@ def get_address_interactions(
         from_timestamp: int,
         to_timestamp: int,
         network: str = "eth-mainnet"
-) -> dict[InteractionDirection, set[Address]]:
+) -> set[tuple[InteractionDirection, Transaction]]:
     """
     Fetches unique addresses that interacted with a address contract during a time period. Can be used for both wallets and contracts.
 
@@ -177,24 +175,23 @@ def get_address_interactions(
 
     log.info(f"Converted timestamps to blocks: {from_timestamp} -> {from_block}, {to_timestamp} -> {to_block}")
 
-    interacted_addresses: dict[InteractionDirection, set[Address]] = dict()
+    interactions: set[tuple[InteractionDirection, Transaction]] = set()
 
     # Get incoming transactions (to the address)
-    incoming_addresses = get_interacting_addresses(
+    incoming_interactions = get_interacting_addresses(
         target_address, network, from_block, to_block, InteractionDirection.INCOMING, ["external", "internal", "erc20", "erc721", "erc1155"]
     )
-    interacted_addresses[InteractionDirection.INCOMING] = incoming_addresses
+    interactions.update(incoming_interactions)
 
     # Get outgoing transactions (from the address)
-    outgoing_addresses = get_interacting_addresses(
+    outgoing_interactions = get_interacting_addresses(
         target_address, network, from_block, to_block, InteractionDirection.OUTGOING, ["external", "internal", "erc20", "erc721", "erc1155"]
     )
-    interacted_addresses[InteractionDirection.OUTGOING] = outgoing_addresses
+    interactions.update(outgoing_interactions)
 
-    total_size = len(interacted_addresses[InteractionDirection.INCOMING]) + len(interacted_addresses[InteractionDirection.OUTGOING])
-    log.info(f"Found {total_size} unique addresses interacting with address {target_address} between {from_timestamp} and {to_timestamp}")
-    log.debug(interacted_addresses)
-    return interacted_addresses
+    log.info(f"Found {len(interactions)} unique addresses interacting with address {target_address} between {from_timestamp} and {to_timestamp}")
+    log.debug(interactions)
+    return interactions
 
 
 def get_interacting_addresses(
@@ -204,7 +201,7 @@ def get_interacting_addresses(
         to_block: str,
         direction: InteractionDirection,
         categories: list[str]
-) -> set[Address]:
+) -> set[tuple[InteractionDirection, Transaction]]:
     """
     Get addresses interacting with a contract in a specific direction.
 
@@ -220,7 +217,7 @@ def get_interacting_addresses(
     # Alchemy API endpoint
     url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
 
-    addresses: set[Address] = set()
+    interactions: set[tuple[InteractionDirection, Transaction]] = set()
     page_key = None
 
     while True:
@@ -260,10 +257,17 @@ def get_interacting_addresses(
 
                 # Extract the addresses from the opposite direction
                 for transfer in transfers:
-                    if direction == InteractionDirection.OUTGOING and transfer.get("to"):
-                        addresses.add(Address(transfer["to"].lower()))
-                    elif direction == InteractionDirection.INCOMING and transfer.get("from"):
-                        addresses.add(Address(transfer["from"].lower()))
+                    if transfer.get("hash") and transfer.get("from") and transfer.get("to") and "value" in transfer and "metadata" in transfer:
+                        # Create Interaction object with all required fields
+                        interaction = Transaction(
+                            transaction_hash=transfer["hash"],
+                            address_from=Address(transfer["from"].lower()),
+                            address_to=Address(transfer["to"].lower()),
+                            value=float(transfer["value"]),
+                            timestamp=transfer["metadata"]["blockTimestamp"])
+                        interactions.add((direction, interaction))
+                    else:
+                        raise ValueError("Invalid transfer: missing required fields", transfer)
 
                 # Check for more pages
                 page_key = data["result"].get("pageKey")
@@ -277,5 +281,5 @@ def get_interacting_addresses(
         else:
             raise Exception(f"Error: {response.status_code}, {response.text}")
 
-    log.info(f"Found {len(addresses)} addresses for {direction} direction")
-    return addresses
+    log.info(f"Found {len(interactions)} addresses for {direction} direction")
+    return interactions

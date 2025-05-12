@@ -1,8 +1,7 @@
 from scripts.bubble.smart_contracts_metadata_scraper import *
 from dateutil import parser
 
-from scripts.bubble.smart_contracts_metadata import SmartContract, Address
-from scripts.bubble.smart_contracts_metadata import *
+from scripts.commons.model import *
 
 CONTRACT_ISSUER_ADDRESS = Address("0x8cfae48fb3e54e143e5454ca2784b7bf3a0dc0d4")
 FROM_TIME = int(parser.parse("2025-04-01T00:00:00Z").timestamp())

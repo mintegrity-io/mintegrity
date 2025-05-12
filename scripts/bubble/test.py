@@ -1,7 +1,7 @@
 import unittest
 
 from scripts.bubble.smart_contracts_metadata_scraper import *
-from scripts.bubble.smart_contracts_metadata import *
+
 
 class TestGetSmartContracts(unittest.TestCase):
     def test_get_smart_contracts_contains_expected_address(self):

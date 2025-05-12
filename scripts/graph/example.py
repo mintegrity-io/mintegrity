@@ -1,6 +1,5 @@
 from dateutil import parser
-from transactions_graph import *
-from scripts.bubble.smart_contracts_metadata import get_contract_interactions
+from scripts.commons.model import get_contract_interactions
 
 CONTRACT_ISSUER_ADDRESS = "0x8cfae48fb3e54e143e5454ca2784b7bf3a0dc0d4"
 FROM_TIME = int(parser.parse("2025-05-01T00:00:00Z").timestamp())

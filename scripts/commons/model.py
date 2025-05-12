@@ -23,9 +23,9 @@ class SmartContract:
 
 
 @dataclass(frozen=True)
-class Interaction:
+class Transaction:
     transaction_hash: str
     address_from: Address
     address_to: Address
     value: float
-    timestamp: int
+    timestamp: str
