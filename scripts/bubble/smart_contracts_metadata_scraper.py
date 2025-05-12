@@ -21,7 +21,7 @@ if not ALCHEMY_API_KEY:
     raise ValueError("ALCHEMY_API_KEY is not set in the environment variables.")
 
 
-def get_smart_contracts_by_issuer(wallet_address: str, network: str = "eth-mainnet") -> set[SmartContract]:
+def get_smart_contracts_by_issuer(wallet_address: Address, network: str = "eth-mainnet") -> set[SmartContract]:
     """
     Fetches a list of smart contracts created by a specific wallet
 
@@ -30,9 +30,7 @@ def get_smart_contracts_by_issuer(wallet_address: str, network: str = "eth-mainn
     :return: A list of smart contract addresses issued by the wallet_address
     """
 
-    log.info(f"Fetching smart contracts for wallet: {wallet_address} on network: {network}")
-
-    checks.check_ethereum_address_validity(wallet_address)
+    log.info(f"Fetching smart contracts for wallet: {wallet_address.address} on network: {network}")
 
     # Alchemy API endpoint
     url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
@@ -50,7 +48,7 @@ def get_smart_contracts_by_issuer(wallet_address: str, network: str = "eth-mainn
                 {
                     "fromBlock": "0x0",
                     "toBlock": "latest",
-                    "fromAddress": wallet_address,
+                    "fromAddress": wallet_address.address,
                     "excludeZeroValue": False,
                     "category": ["external"],
                     **({"pageKey": page_key} if page_key else {})
@@ -83,7 +81,7 @@ def get_smart_contracts_by_issuer(wallet_address: str, network: str = "eth-mainn
     tx_hashes = [deployment["hash"] for deployment in deployments]
 
     # Fetch transaction receipts to get contract addresses
-    contract_addresses = set()
+    contract_addresses: set[Address] = set()
     for tx_hash in tx_hashes:
         receipt_payload = {
             "jsonrpc": "2.0",
@@ -95,13 +93,13 @@ def get_smart_contracts_by_issuer(wallet_address: str, network: str = "eth-mainn
         if receipt_response.status_code == 200:
             receipt_data = receipt_response.json()
             if "result" in receipt_data and receipt_data["result"]:
-                contract_address = receipt_data["result"].get("contractAddress")
+                contract_address: Address = Address(receipt_data["result"].get("contractAddress"))
                 if contract_address:
                     contract_addresses.add(contract_address)
         else:
             raise Exception(f"Failed to fetch receipt for transaction {tx_hash}")
 
-    log.info(f"Found {len(contract_addresses)} smart contracts deployed by {wallet_address}")
+    log.info(f"Found {len(contract_addresses)} smart contracts deployed by {wallet_address.address}")
     log.debug(f"Smart contracts: {contract_addresses}")
 
     contracts: set[SmartContract] = {SmartContract(address=address) for address in contract_addresses}
@@ -157,22 +155,21 @@ def get_block_by_timestamp(timestamp: int, network: str = "eth-mainnet") -> str:
 
 
 def get_address_interactions(
-        address: str,
+        target_address: Address,
         from_timestamp: int,
         to_timestamp: int,
         network: str = "eth-mainnet"
-) -> dict[InteractionDirection, set[str]]:
+) -> dict[InteractionDirection, set[Address]]:
     """
     Fetches unique addresses that interacted with a address contract during a time period. Can be used for both wallets and contracts.
 
-    :param address: The address get interactions for incoming and outgoing transactions
+    :param target_address: The address get interactions for incoming and outgoing transactions
     :param from_timestamp: Start timestamp in Unix seconds
     :param to_timestamp: End timestamp in Unix seconds
     :param network: The Ethereum network (e.g., 'eth-mainnet', 'eth-goerli')
     :return: A set of unique addresses that interacted with the contract
     """
-    log.info(f"Fetching interactions for address: {address} from {print_timestamp(from_timestamp)} to {print_timestamp(to_timestamp)} on network: {network}")
-    checks.check_ethereum_address_validity(address)
+    log.info(f"Fetching interactions for address: {target_address.address} from {print_timestamp(from_timestamp)} to {print_timestamp(to_timestamp)} on network: {network}")
 
     # Convert timestamps to block numbers using the blocks-by-timestamp endpoint
     from_block = get_block_by_timestamp(from_timestamp, network)
@@ -180,49 +177,50 @@ def get_address_interactions(
 
     log.info(f"Converted timestamps to blocks: {from_timestamp} -> {from_block}, {to_timestamp} -> {to_block}")
 
-    # Alchemy API endpoint
-    url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
-
-    interacted_addresses = dict()
+    interacted_addresses: dict[InteractionDirection, set[Address]] = dict()
 
     # Get incoming transactions (to the address)
     incoming_addresses = get_interacting_addresses(
-        url, address, from_block, to_block, InteractionDirection.INCOMING, ["external", "internal", "erc20", "erc721", "erc1155"]
+        target_address, network, from_block, to_block, InteractionDirection.INCOMING, ["external", "internal", "erc20", "erc721", "erc1155"]
     )
     interacted_addresses[InteractionDirection.INCOMING] = incoming_addresses
 
     # Get outgoing transactions (from the address)
     outgoing_addresses = get_interacting_addresses(
-        url, address, from_block, to_block, InteractionDirection.OUTGOING, ["external", "internal", "erc20", "erc721", "erc1155"]
+        target_address, network, from_block, to_block, InteractionDirection.OUTGOING, ["external", "internal", "erc20", "erc721", "erc1155"]
     )
     interacted_addresses[InteractionDirection.OUTGOING] = outgoing_addresses
 
     total_size = len(interacted_addresses[InteractionDirection.INCOMING]) + len(interacted_addresses[InteractionDirection.OUTGOING])
-    log.info(f"Found {total_size} unique addresses interacting with address {address} between {from_timestamp} and {to_timestamp}")
+    log.info(f"Found {total_size} unique addresses interacting with address {target_address} between {from_timestamp} and {to_timestamp}")
     log.debug(interacted_addresses)
     return interacted_addresses
 
 
 def get_interacting_addresses(
-        url: str,
-        address: str,
+        target_address: Address,
+        network: str,
         from_block: str,
         to_block: str,
         direction: InteractionDirection,
         categories: list[str]
-) -> set[str]:
+) -> set[Address]:
     """
     Get addresses interacting with a contract in a specific direction.
 
-    :param url: Alchemy API URL
-    :param address: The target address (contract or wallet) to get interactions for
+    :param target_address: The target address (contract or wallet) to get interactions for
+    :param network: The Ethereum network
     :param from_block: Start block in hex
     :param to_block: End block in hex
     :param direction: 'from' or 'to' indicating direction of interaction
     :param categories: List of transaction categories to query
-    :return: A set of unique addresses
+    :return: A set of unique addresses that interacted with the target address
     """
-    addresses = set()
+
+    # Alchemy API endpoint
+    url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+
+    addresses: set[Address] = set()
     page_key = None
 
     while True:
@@ -236,9 +234,9 @@ def get_interacting_addresses(
 
         # Set direction parameter (fromAddress or toAddress)
         if direction == InteractionDirection.OUTGOING:
-            params["fromAddress"] = address
+            params["fromAddress"] = target_address.address
         elif direction == InteractionDirection.INCOMING:
-            params["toAddress"] = address
+            params["toAddress"] = target_address.address
         else:
             raise ValueError("Invalid direction. Supported directions: " + ", ".join([d.name for d in InteractionDirection]))
 
@@ -263,9 +261,9 @@ def get_interacting_addresses(
                 # Extract the addresses from the opposite direction
                 for transfer in transfers:
                     if direction == InteractionDirection.OUTGOING and transfer.get("to"):
-                        addresses.add(transfer["to"].lower())
+                        addresses.add(Address(transfer["to"].lower()))
                     elif direction == InteractionDirection.INCOMING and transfer.get("from"):
-                        addresses.add(transfer["from"].lower())
+                        addresses.add(Address(transfer["from"].lower()))
 
                 # Check for more pages
                 page_key = data["result"].get("pageKey")

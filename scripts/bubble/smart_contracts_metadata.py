@@ -3,29 +3,29 @@ from enum import StrEnum
 
 from scripts.commons import checks
 
+
 class InteractionDirection(StrEnum):
     INCOMING = "incoming"
     OUTGOING = "outgoing"
 
+
 @dataclass(frozen=True)
-class SmartContract:
+class Address:
     address: str
 
     def __post_init__(self):
         checks.check_ethereum_address_validity(self.address)
 
 
-# TODO Refactor interaction model to use this style instead of "Direction + Address"
-# class Interaction:
-#     address_from: str
-#     address_to: str
-#     value: float
-#     timestamp: int
-#     direction: InteractionDirection
-#
-#     def __post_init__(self):
-#         checks.check_ethereum_address_validity(self.address_from)
-#         checks.check_ethereum_address_validity(self.address_to)
+@dataclass(frozen=True)
+class SmartContract:
+    address: Address
 
 
-
+@dataclass(frozen=True)
+class Interaction:
+    transaction_hash: str
+    address_from: Address
+    address_to: Address
+    value: float
+    timestamp: int
