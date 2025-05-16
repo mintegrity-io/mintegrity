@@ -116,6 +116,7 @@ def print_timestamp(timestamp: int) -> str:
 
 _timestamp_to_block_cache = {}
 
+
 def get_block_by_timestamp(timestamp: int, network: str = "eth-mainnet") -> str:
     """
     Gets block number by timestamp using Alchemy's utility endpoint.
@@ -274,7 +275,11 @@ def get_interacting_addresses(
                         # For contract creation transactions, "to" will be None
                         if transfer.get("to") is None:
                             # For contract creation, we need to get the contract address from the transaction receipt
-                            # For now, skip this transfer as we can't create a Transaction without a "to" address
+                            log.warning(f"Transaction with to=null found. Skipping. Transaction hash: {transfer.get('hash')}")
+                            continue
+                        if transfer["value"] is None:
+                            # Probably token transfers (like ERC-721 NFTs), ignore for now
+                            log.warning(f"Transaction with value=null found. Skipping. Transaction hash: {transfer.get('hash')}")
                             continue
                         # Determine address types
                         from_address_type: AddressType = AddressType.CONTRACT if get_address_type(transfer["from"]) else AddressType.WALLET

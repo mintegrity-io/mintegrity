@@ -9,6 +9,8 @@ from scripts.commons.model import Address, AddressType
 # TODO make directed edges
 
 
+import numpy as np
+
 def visualize_transactions_graph(
         graph: TransactionsGraph,
         filename: Optional[str] = None,
@@ -158,23 +160,38 @@ def visualize_transactions_graph(
             x0, y0 = pos[source]
             x1, y1 = pos[target]
 
-            # Add points for line (with slight curve)
-            edge_x.append(x0)
-            edge_x.append((x0 + x1) / 2 + (y1 - y0) * 0.1)  # Add curve point
-            edge_x.append(x1)
-            edge_x.append(None)  # Separate lines
+            # Calculate distance between nodes
+            dist = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
 
-            edge_y.append(y0)
-            edge_y.append((y0 + y1) / 2 - (x1 - x0) * 0.1)  # Add curve point
-            edge_y.append(y1)
-            edge_y.append(None)  # Separate lines
+            # Create curved path with more points for smoother edges
+            # Stronger curve for shorter edges to avoid overlap
+            curve_strength = max(0.1, 0.2 - dist * 0.1)
 
-            # Create hover text
-            hover_text = f"<b>From:</b> {source[:8]}...<br>" + \
-                         f"<b>To:</b> {target[:8]}...<br>" + \
-                         f"<b>Transactions:</b> {edge[2]['transactions']}<br>" + \
-                         f"<b>Total Value:</b> {edge[2]['value']:.8f}"
-            edge_hover.extend([hover_text, hover_text, hover_text, None])
+            # Create a bezier curve for the edge path
+            n_points = 20
+            for i in range(n_points + 1):
+                t = i / n_points
+                # Calculate bezier curve point
+                control_x = (x0 + x1) / 2 + (y1 - y0) * curve_strength
+                control_y = (y0 + y1) / 2 - (x1 - x0) * curve_strength
+                # Quadratic bezier formula
+                bx = (1-t)**2 * x0 + 2*(1-t)*t * control_x + t**2 * x1
+                by = (1-t)**2 * y0 + 2*(1-t)*t * control_y + t**2 * y1
+
+                edge_x.append(bx)
+                edge_y.append(by)
+
+                # Add hover text to each point
+                hover_text = f"<b>From:</b> {source[:8]}...<br>" + \
+                             f"<b>To:</b> {target[:8]}...<br>" + \
+                             f"<b>Transactions:</b> {edge[2]['transactions']}<br>" + \
+                             f"<b>Total Value:</b> {edge[2]['value']:.8f}"
+                edge_hover.append(hover_text)
+
+            # Add None to separate edges
+            edge_x.append(None)
+            edge_y.append(None)
+            edge_hover.append(None)
 
         # Create a trace for this weight group
         edge_trace = go.Scatter(
@@ -190,6 +207,44 @@ def visualize_transactions_graph(
             showlegend=False
         )
         edge_traces.append(edge_trace)
+
+    # Add arrow markers at the end of each edge
+    for edge in G.edges(data=True):
+        source, target = edge[0], edge[1]
+        x0, y0 = pos[source]
+        x1, y1 = pos[target]
+
+        # Calculate edge direction vector
+        dx, dy = x1 - x0, y1 - y0
+        dist = np.sqrt(dx*dx + dy*dy)
+
+        # Normalize the vector
+        dx, dy = dx/dist, dy/dist
+
+        # Calculate the position for arrow (at 75% of the edge length)
+        arrow_x = x0 + dx * dist * 0.75
+        arrow_y = y0 + dy * dist * 0.75
+
+        # Calculate size based on edge weight
+        weight = edge[2]['weight']
+        size = min(8 + weight * 0.5, 15)
+
+        # Add arrow marker
+        arrow_trace = go.Scatter(
+            x=[arrow_x],
+            y=[arrow_y],
+            mode='markers',
+            marker=dict(
+                symbol='triangle-right',
+                size=size,
+                color='rgba(80, 80, 80, 0.9)',
+                angle=np.arctan2(dy, dx) * 180 / np.pi,
+                line=dict(width=1, color='rgba(50, 50, 50, 0.8)')
+            ),
+            hoverinfo='none',
+            showlegend=False
+        )
+        edge_traces.append(arrow_trace)
 
     # Create figure
     fig = go.Figure(
@@ -209,24 +264,7 @@ def visualize_transactions_graph(
             margin=dict(b=20, l=5, r=5, t=40),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            template="plotly_white",
-            annotations=[
-                dict(
-                    ax=pos[edge[0]][0],
-                    ay=pos[edge[0]][1],
-                    axref='x',
-                    ayref='y',
-                    x=pos[edge[1]][0],
-                    y=pos[edge[1]][1],
-                    xref='x',
-                    yref='y',
-                    showarrow=True,
-                    arrowhead=2,
-                    arrowsize=1,
-                    arrowwidth=1,
-                    arrowcolor='rgba(150,150,150,0.5)'
-                ) for edge in G.edges()
-            ]
+            template="plotly_white"
         )
     )
 

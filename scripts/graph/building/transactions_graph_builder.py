@@ -5,7 +5,7 @@ from scripts.graph.transactions_graph import *
 log = get_logger()
 
 # Add a limit to the number of nodes and transactions to avoid excessive memory and API usage
-MAX_NODEX_PER_GRAPH = 10000
+MAX_NODES_PER_GRAPH = 300
 MAX_TRANSACTIONS_PER_GRAPH = 10000
 MAX_TRANSACTIONS_PER_NODE = 100
 
@@ -60,8 +60,8 @@ class TransactionsGraphBuilder:
         """
         Check if the graph building process should be terminated based on the number of nodes and transactions.
         """
-        if len(self.graph.nodes) > MAX_NODEX_PER_GRAPH:
-            self.mark_all_not_processed_addresses_as_partially_processed(f"Graph has reached maximum number of nodes: {MAX_NODEX_PER_GRAPH}")
+        if len(self.graph.nodes) > MAX_NODES_PER_GRAPH:
+            self.mark_all_not_processed_addresses_as_partially_processed(f"Graph has reached maximum number of nodes: {MAX_NODES_PER_GRAPH}")
             return True
         if len(self.graph.edges) > MAX_TRANSACTIONS_PER_GRAPH:
             self.mark_all_not_processed_addresses_as_partially_processed(f"Graph has reached maximum number of transactions: {MAX_TRANSACTIONS_PER_GRAPH}")
