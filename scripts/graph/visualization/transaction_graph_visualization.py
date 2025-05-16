@@ -70,7 +70,7 @@ def visualize_transactions_graph(
             tx_count = len(edge.transactions)
             value = edge.get_total_transactions_value()
             G.add_edge(from_addr, to_addr,
-                       weight=tx_count,
+                       weight=value,  # Using transaction value as weight
                        value=value,
                        transactions=tx_count)
 
@@ -144,7 +144,8 @@ def visualize_transactions_graph(
     weight_groups = {}
     for edge in G.edges(data=True):
         weight = edge[2]['weight']
-        group = min(weight, 10)  # Cap at 10 groups
+        # Use logarithmic binning for transaction values
+        group = min(int(np.log1p(weight) * 2), 10)  # Cap at 10 groups with log scaling
         if group not in weight_groups:
             weight_groups[group] = []
         weight_groups[group].append(edge)
@@ -193,13 +194,13 @@ def visualize_transactions_graph(
             edge_y.append(None)
             edge_hover.append(None)
 
-        # Create a trace for this weight group
+        # Create a trace for this weight group with logarithmic scaling for width
         edge_trace = go.Scatter(
             x=edge_x,
             y=edge_y,
             mode='lines',
             line=dict(
-                width=0.5 + (weight * 0.5),
+                width=0.5 + np.log1p(weight) * 1.0,  # Logarithmic scaling for line width
                 color='rgba(150, 150, 150, 0.6)'
             ),
             hoverinfo='text',
@@ -225,9 +226,9 @@ def visualize_transactions_graph(
         arrow_x = x0 + dx * dist * 0.75
         arrow_y = y0 + dy * dist * 0.75
 
-        # Calculate size based on edge weight
+        # Calculate size based on edge weight with logarithmic scaling
         weight = edge[2]['weight']
-        size = min(8 + weight * 0.5, 15)
+        size = min(8 + np.log1p(weight) * 0.3, 15)  # Logarithmic scaling for arrow size
 
         # Add arrow marker
         arrow_trace = go.Scatter(
