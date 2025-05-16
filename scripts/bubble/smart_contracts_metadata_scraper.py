@@ -91,7 +91,7 @@ def get_smart_contracts_by_issuer(wallet_address: Address, network: str = "eth-m
         if receipt_response.status_code == 200:
             receipt_data = receipt_response.json()
             if "result" in receipt_data and receipt_data["result"]:
-                contract_address: Address = Address(receipt_data["result"].get("contractAddress"))
+                contract_address: Address = Address(receipt_data["result"].get("contractAddress"), AddressType.CONTRACT)
                 if contract_address:
                     contract_addresses.add(contract_address)
         else:
@@ -114,6 +114,8 @@ def print_timestamp(timestamp: int) -> str:
     return f"{timestamp} ({time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(timestamp))})"
 
 
+_timestamp_to_block_cache = {}
+
 def get_block_by_timestamp(timestamp: int, network: str = "eth-mainnet") -> str:
     """
     Gets block number by timestamp using Alchemy's utility endpoint.
@@ -122,7 +124,15 @@ def get_block_by_timestamp(timestamp: int, network: str = "eth-mainnet") -> str:
     :param network: The Ethereum network
     :return: Block number in hex format (0x...)
     """
-    # Utility API endpoint
+    # Create cache key from timestamp and network
+    cache_key = f"{timestamp}:{network}"
+
+    # Check if result is already in cache
+    if cache_key in _timestamp_to_block_cache:
+        log.info(f"Using cached block number for timestamp: {print_timestamp(timestamp)} on network: {network}")
+        return _timestamp_to_block_cache[cache_key]
+
+    # If not in cache, fetch from API
     url = f"https://api.g.alchemy.com/data/v1/{ALCHEMY_API_KEY}/utility/blocks/by-timestamp"
     log.info(f"Fetching block number for timestamp: {print_timestamp(timestamp)} on network: {network}")
     params = {
@@ -139,10 +149,13 @@ def get_block_by_timestamp(timestamp: int, network: str = "eth-mainnet") -> str:
             # Convert decimal to hex with '0x' prefix
             block_info = data["data"][0]["block"]
             number = block_info["number"]
+            hex_number = hex(number)
             timestamp_from_block = block_info["timestamp"]
-            log.info(f"Block number (dec): {number}, Timestamp: {timestamp_from_block}")
-            log.info(f"Block number (hex): {hex(number)}")
+            log.debug(f"Block number (dec): {number}, Timestamp: {timestamp_from_block}")
+            log.debug(f"Block number (hex): {hex_number}")
             log.info(f"Block number for timestamp: {print_timestamp(timestamp)} on network: {network} was successfully fetched")
+            # Store result in cache
+            _timestamp_to_block_cache[cache_key] = hex_number
             return hex(number)
         else:
             log.error(f"Error in block-by-timestamp response: {data}")
@@ -257,12 +270,21 @@ def get_interacting_addresses(
 
                 # Extract the addresses from the opposite direction
                 for transfer in transfers:
-                    if transfer.get("hash") and transfer.get("from") and transfer.get("to") and "value" in transfer and "metadata" in transfer:
+                    if transfer.get("hash") and transfer.get("from") and "value" in transfer and "metadata" in transfer:
+                        # For contract creation transactions, "to" will be None
+                        if transfer.get("to") is None:
+                            # For contract creation, we need to get the contract address from the transaction receipt
+                            # For now, skip this transfer as we can't create a Transaction without a "to" address
+                            continue
+                        # Determine address types
+                        from_address_type: AddressType = AddressType.CONTRACT if get_address_type(transfer["from"]) else AddressType.WALLET
+                        to_address_type: AddressType = AddressType.CONTRACT if get_address_type(transfer["to"]) else AddressType.WALLET
+
                         # Create Interaction object with all required fields
                         interaction = Transaction(
                             transaction_hash=transfer["hash"],
-                            address_from=Address(transfer["from"].lower()),
-                            address_to=Address(transfer["to"].lower()),
+                            address_from=Address(transfer["from"].lower(), from_address_type),
+                            address_to=Address(transfer["to"].lower(), to_address_type),
                             value=float(transfer["value"]),
                             timestamp=transfer["metadata"]["blockTimestamp"])
                         interactions.add((direction, interaction))
@@ -283,3 +305,35 @@ def get_interacting_addresses(
 
     log.info(f"Found {len(interactions)} addresses for {direction} direction")
     return interactions
+
+
+def get_address_type(address: str, network: str = "eth-mainnet") -> AddressType:
+    """
+    Determines if an address is a contract or a wallet by checking if it has code.
+
+    :param address: Ethereum address to check
+    :param network: Ethereum network
+    :return: True if it's a contract, False if it's a wallet
+    """
+    url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "eth_getCode",
+        "params": [address, "latest"],
+        "id": 1
+    }
+
+    response = requests.post(url, json=payload)
+
+    if response.status_code == 200:
+        data = response.json()
+        # If it's a wallet, it will return "0x" (no code)
+        # If it's a contract, it will return the bytecode
+        if data["result"] == "0x":
+            return AddressType.WALLET
+        else:
+            return AddressType.CONTRACT
+    else:
+        log.error(f"Error checking if address is contract: {response.status_code}, {response.text}")
+        raise Exception(f"Error: {response.status_code}, {response.text}")

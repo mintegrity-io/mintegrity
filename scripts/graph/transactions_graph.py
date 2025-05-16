@@ -13,10 +13,23 @@ class NodeType(IntEnum):
     CONTRACT = 3
 
 
-@dataclass
+@dataclass(frozen=True)
 class Node:
     address: Address
     type: NodeType
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "address": self.address.to_dict(),
+            "type": self.type.value
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> 'Node':
+        return cls(
+            address=Address.from_dict(data["address"]),
+            type=NodeType(data["type"])
+        )
 
 
 @dataclass
@@ -24,6 +37,38 @@ class Edge:
     from_node: Node
     to_node: Node
     transactions: set[Transaction]  # it is possible and likely, that multiple transactions exist between the same nodes, e.g. many interactions between two wallets
+
+    def __hash__(self):
+        # Only hash based on from_node and to_node which are constant
+        return hash((self.from_node, self.to_node))
+
+    def __eq__(self, other):
+        if not isinstance(other, Edge):
+            return False
+        # Two edges are equal if they connect the same nodes
+        return self.from_node == other.from_node and self.to_node == other.to_node
+
+    def to_dict(self) -> dict[str, Any]:
+            return {
+                "from_node": self.from_node.to_dict(),
+                "to_node": self.to_node.to_dict(),
+                "transactions": [tx.to_dict() for tx in self.transactions]
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], node_map: dict[str, Node] = None) -> 'Edge':
+        if node_map:
+            # Use existing nodes if provided
+            from_address = Address.from_dict(data["from_node"]["address"])
+            to_address = Address.from_dict(data["to_node"]["address"])
+            from_node = node_map.get(from_address.address)
+            to_node = node_map.get(to_address.address)
+        else:
+            from_node = Node.from_dict(data["from_node"])
+            to_node = Node.from_dict(data["to_node"])
+
+        transactions = {Transaction.from_dict(tx) for tx in data["transactions"]}
+        return cls(from_node=from_node, to_node=to_node, transactions=transactions)
 
     def add_transaction(self, transaction: Transaction):
         if transaction not in self.transactions:
@@ -37,8 +82,32 @@ class Edge:
 
 
 class TransactionsGraph:
-    nodes: set[Node] = {}
-    edges: set[Edge] = {}
+    nodes: set[Node] = set()
+    edges: set[Edge] = set()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "nodes": [node.to_dict() for node in self.nodes],
+            "edges": [edge.to_dict() for edge in self.edges]
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> 'TransactionsGraph':
+        graph = cls()
+
+        # First create all nodes
+        node_map = {}
+        for node_data in data["nodes"]:
+            node = Node.from_dict(node_data)
+            graph.nodes.add(node)
+            node_map[node.address.address] = node
+
+        # Then create edges using the node references
+        for edge_data in data["edges"]:
+            edge = Edge.from_dict(edge_data, node_map)
+            graph.edges.add(edge)
+
+        return graph
 
     def add_node_if_not_exists(self, address: Address, is_root: bool = False) -> Node:
         if not self.is_node_in_graph_by_address(address):
@@ -89,6 +158,10 @@ class TransactionsGraph:
         return None
 
     def add_transaction(self, transaction: Transaction):
+        """
+        Add a transaction to the graph. If the transaction already exists, skip it.
+        Create all corresponding nodes and edges if they do not exist.
+        """
         if self.is_transaction_in_graph(transaction):
             log.debug(f"Transaction {transaction.transaction_hash} already exists in graph. Skipping addition")
             return
@@ -99,4 +172,11 @@ class TransactionsGraph:
         edge: Edge = self.add_edge_if_not_exists(from_node, to_node)
         edge.add_transaction(transaction)
 
+    def get_number_of_nodes(self) -> int:
+        return len(self.nodes)
 
+    def get_number_of_edges(self) -> int:
+        return len(self.edges)
+
+    def get_number_of_transactions(self) -> int:
+        return sum(len(edge.transactions) for edge in self.edges)
