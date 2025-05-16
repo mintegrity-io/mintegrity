@@ -271,7 +271,7 @@ def get_interacting_addresses(
 
                 # Extract the addresses from the opposite direction
                 for transfer in transfers:
-                    if transfer.get("hash") and transfer.get("from") and "value" in transfer and "metadata" in transfer:
+                    if transfer.get("hash") and transfer.get("from") and "value" in transfer and "metadata" in transfer and "asset" in transfer:
                         # For contract creation transactions, "to" will be None
                         if transfer.get("to") is None:
                             # For contract creation, we need to get the contract address from the transaction receipt
