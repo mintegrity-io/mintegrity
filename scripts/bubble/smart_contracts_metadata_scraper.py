@@ -281,6 +281,10 @@ def get_interacting_addresses(
                             # Probably token transfers (like ERC-721 NFTs), ignore for now
                             log.warning(f"Transaction with value=null found. Skipping. Transaction hash: {transfer.get('hash')}")
                             continue
+                        if transfer.get("asset") != "ETH":
+                            # Only ETH transfers are supported for now
+                            log.warning(f"Transfer with asset {transfer.get('asset')} found. Skipping. Transaction hash: {transfer.get('hash')}")
+                            continue
                         # Determine address types
                         from_address_type: AddressType = AddressType.CONTRACT if get_address_type(transfer["from"]) else AddressType.WALLET
                         to_address_type: AddressType = AddressType.CONTRACT if get_address_type(transfer["to"]) else AddressType.WALLET
