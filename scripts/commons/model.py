@@ -69,7 +69,6 @@ class SmartContract:
             address=Address.from_dict(data["address"])
         )
 
-
 @dataclass(frozen=True)
 class Transaction:
     transaction_hash: str
