@@ -1,10 +1,8 @@
 import plotly.graph_objects as go
 import networkx as nx
 import random
-from typing import Optional, Set, Dict, Any
-import pandas as pd
-from scripts.graph.transactions_graph import TransactionsGraph, NodeType, Node
-from scripts.commons.model import Address, AddressType
+from typing import Optional, Set
+from scripts.graph.model.transactions_graph import TransactionsGraph, NodeType, Node
 
 # TODO make directed edges
 
@@ -68,7 +66,7 @@ def visualize_transactions_graph(
 
         if from_addr in G.nodes and to_addr in G.nodes:
             tx_count = len(edge.transactions)
-            value = edge.get_total_transactions_value()
+            value = edge.get_total_transactions_value_usd()
             G.add_edge(from_addr, to_addr,
                        weight=value,  # Using transaction value as weight
                        value=value,

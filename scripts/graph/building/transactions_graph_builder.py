@@ -1,13 +1,12 @@
-from scripts.bubble.smart_contracts_metadata_scraper import get_address_interactions
-from scripts.commons.logging_config import get_logger
-from scripts.graph.transactions_graph import *
+from scripts.commons.transactions_metadata_scraper import get_address_interactions
+from scripts.graph.model.transactions_graph import *
 
 log = get_logger()
 
 # Add a limit to the number of nodes and transactions to avoid excessive memory and API usage
-MAX_NODES_PER_GRAPH = 300
+MAX_NODES_PER_GRAPH = 1000
 MAX_TRANSACTIONS_PER_GRAPH = 10000
-MAX_TRANSACTIONS_PER_NODE = 100
+MAX_TRANSACTIONS_PER_NODE = 300
 
 
 # Track state of address processing
@@ -50,13 +49,13 @@ class TransactionsGraphBuilder:
             for address in addresses_to_process_copy:
                 self.add_all_interactions_for_address_and_mark_it_as_processed(address)
 
-            if self.termination_condition():
+            if self._termination_condition():
                 break
 
         log.warning("Termination condition met. Stopping graph building.")
         return self.graph
 
-    def termination_condition(self):
+    def _termination_condition(self):
         """
         Check if the graph building process should be terminated based on the number of nodes and transactions.
         """
@@ -72,7 +71,7 @@ class TransactionsGraphBuilder:
         log.info("Current graph contains {} nodes and {} transactions".format(self.graph.get_number_of_nodes(), self.graph.get_number_of_transactions()))
         return False
 
-    def mark_address_as_fully_processed(self, address: Address):
+    def _mark_address_as_fully_processed(self, address: Address):
         self.processed_addresses.add((address, AddressProcessingState.PROCESSED))
         self.addresses_to_process.remove(address)
         log.info(f"Processed address: {address}. Total processed: {len(self.processed_addresses)}")
@@ -103,7 +102,7 @@ class TransactionsGraphBuilder:
                 (_, transaction) = interaction_entry
                 self.graph.add_transaction(transaction)
             # Mark processed addresses to avoid infinite loops
-            self.mark_address_as_fully_processed(address)
+            self._mark_address_as_fully_processed(address)
         else:
             interactions_with_address_capped: set[tuple[InteractionDirection, Transaction]] = set(list(interactions_with_address)[:MAX_TRANSACTIONS_PER_NODE])
             for interaction_entry in interactions_with_address_capped:

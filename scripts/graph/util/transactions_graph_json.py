@@ -1,9 +1,8 @@
 import json
 import os
-from datetime import datetime
 
 from scripts.commons.logging_config import get_logger
-from scripts.graph.transactions_graph import TransactionsGraph
+from scripts.graph.model.transactions_graph import TransactionsGraph
 
 log = get_logger()
 

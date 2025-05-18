@@ -1,10 +1,13 @@
 from dateutil import parser
 
-from scripts.bubble.smart_contracts_metadata_scraper import get_smart_contracts_by_issuer
+from scripts.commons import initialize_metadata
+from scripts.commons.transactions_metadata_scraper import get_smart_contracts_by_issuer
 from scripts.commons.model import *
-from scripts.graph.transactions_graph import TransactionsGraph
+from scripts.graph.model.transactions_graph import TransactionsGraph
 from scripts.graph.building.transactions_graph_builder import TransactionsGraphBuilder
 from scripts.graph.util.transactions_graph_json import save_graph_to_json
+
+initialize_metadata.init()
 
 CONTRACT_ISSUER_ADDRESS = Address("0x8cfae48fb3e54e143e5454ca2784b7bf3a0dc0d4", AddressType.WALLET)
 FROM_TIME = int(parser.parse("2025-05-04T00:00:00Z").timestamp())

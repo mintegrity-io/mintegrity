@@ -1,4 +1,4 @@
-from scripts.bubble.smart_contracts_metadata_scraper import *
+from scripts.commons.transactions_metadata_scraper import *
 from dateutil import parser
 
 from scripts.commons.model import *
