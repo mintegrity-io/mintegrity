@@ -62,7 +62,6 @@ def get_smart_contracts_by_issuer(wallet_address: Address, network: str = "eth-m
         if response.status_code == 200:
             data = response.json()
             if "result" in data:
-                log.info("Alchemy API request successful")
                 transfers.extend(data["result"]["transfers"])
                 page_key = data["result"].get("pageKey")
                 if not page_key:

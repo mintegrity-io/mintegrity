@@ -3,6 +3,7 @@ from enum import StrEnum, IntEnum
 from typing import Any
 
 from scripts.commons.logging_config import get_logger
+from scripts.commons.metadata import get_token_price_usd
 
 log = get_logger()
 
@@ -81,6 +82,20 @@ class Transaction:
     value: float
     timestamp: str
     token_symbol: str
+    value_usd: float = None
+
+    def __post_init__(self):
+        # Calculate value_usd after constructor is called
+        if self.value_usd is None:
+            # You'll need to implement the actual conversion logic here
+            # This is just a placeholder
+            object.__setattr__(self, 'value_usd', self.calculate_usd_value())
+
+    def calculate_usd_value(self) -> float:
+        """
+        Calculate the USD value based on token value
+        """
+        return self.value * get_token_price_usd(self.token_symbol, self.timestamp)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -89,7 +104,8 @@ class Transaction:
             "address_to": self.address_to.to_dict(),
             "value": self.value,
             "timestamp": self.timestamp,
-            "token_symbol": self.token_symbol
+            "token_symbol": self.token_symbol,
+            "value_usd": self.value_usd
         }
 
     @classmethod
@@ -100,28 +116,6 @@ class Transaction:
             address_to=Address.from_dict(data["address_to"]),
             value=data["value"],
             timestamp=data["timestamp"],
-            token_symbol=data.get("token_symbol")
-        )
-
-
-@dataclass(frozen=True)
-class TokenPriceUsd:
-    """Token prices in USD for different timeframes"""
-    token_symbol: str
-    timestamp: int
-    price_usd: float
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "token_symbol": self.token_symbol,
-            "timestamp": self.timestamp,
-            "price_usd": self.price_usd
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'TokenPriceUsd':
-        return cls(
-            token_symbol=data["token_symbol"],
-            timestamp=data["timestamp"],
-            price_usd=data["price_usd"]
+            token_symbol=data.get("token_symbol"),
+            value_usd=data.get("value_usd")
         )

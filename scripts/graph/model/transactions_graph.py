@@ -88,10 +88,7 @@ class Edge:
             log.debug(f"Transaction {transaction.transaction_hash} already exists in edge. Skipping addition")
 
     def get_total_transactions_value_usd(self) -> float:
-        total_value_usd = 0
-        for transaction in self.transactions.values():
-            total_value_usd += transaction.value * get_token_price_usd(transaction.token_symbol, transaction.timestamp)
-        return total_value_usd
+        return sum(transaction.value_usd for transaction in self.transactions.values())
 
 
 class TransactionsGraph:
