@@ -25,7 +25,7 @@ def categorize_graph(graph: TransactionsGraph) -> dict[str, CategorizedNode]:
         graph: The transactions graph to categorize
 
     Returns:
-        A GraphCategorizationResult with categories assigned to each node
+        A dictionary mapping node addresses to their categorized types
     """
     result: dict[str, CategorizedNode] = {}
 
