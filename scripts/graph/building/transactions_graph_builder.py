@@ -6,7 +6,7 @@ log = get_logger()
 # Add a limit to the number of nodes and transactions to avoid excessive memory and API usage
 MAX_NODES_PER_GRAPH = 5000
 MAX_TRANSACTIONS_PER_GRAPH = 10000
-MAX_TRANSACTIONS_PER_NODE = 500
+MAX_TRANSACTIONS_PER_NODE = 1000
 
 
 # Track state of address processing
