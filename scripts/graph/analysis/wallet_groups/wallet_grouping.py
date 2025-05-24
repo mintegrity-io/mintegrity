@@ -58,6 +58,8 @@ def detect_wallet_coordination(graph: TransactionsGraph) -> Dict[str, Dict[str, 
     """
     log.info("Detecting wallet coordination patterns...")
 
+    global wallet_metrics  # Use the global wallet_metrics
+
     # Step 1: Extract wallet nodes only
     wallet_nodes = {addr: node for addr, node in graph.nodes.items()
                     if node.type == NodeType.WALLET}
@@ -69,7 +71,7 @@ def detect_wallet_coordination(graph: TransactionsGraph) -> Dict[str, Dict[str, 
     log.info(f"Analyzing coordination patterns among {len(wallet_nodes)} wallets")
 
     # Step 2: Initialize coordination metrics for each wallet
-    wallet_metrics: Dict[str, WalletCoordinationMetrics] = {
+    wallet_metrics = {
         addr: WalletCoordinationMetrics() for addr in wallet_nodes
     }
 
@@ -249,16 +251,18 @@ def _detect_layer_storage_patterns(graph: TransactionsGraph,
     # Identify layer and storage wallets based on behavior patterns
     for wallet_addr, stats in wallet_stats.items():
         # Layer wallets interact with many contracts and have balanced in/out ratio
-        if (stats["unique_contracts"] >= 5 and
-                stats["contract_interactions"] > 10 and
-                stats["total_txs_out"] >= stats["total_txs_in"] * 0.8):
+        if (stats["unique_contracts"] >= 3 and
+                stats["contract_interactions"] > 5 and
+                stats["total_txs_out"] >= stats["total_txs_in"] * 0.5):
             wallet_metrics[wallet_addr].is_layer_wallet = True
+            log.info(f"Identified layer wallet: {wallet_addr}")
 
         # Storage wallets receive more than they send out, fewer contract interactions
-        if (stats["in_out_ratio"] > 1.5 and
-                stats["value_in_out_ratio"] > 2.0 and
-                stats["value_in"] > 5000):  # Minimum USD threshold
+        if (stats["in_out_ratio"] > 1.2 and
+                stats["value_in_out_ratio"] > 1.5 and
+                stats["value_in"] > 1000):  # Minimum USD threshold
             wallet_metrics[wallet_addr].is_storage_wallet = True
+            log.info(f"Identified storage wallet: {wallet_addr}")
 
     # Connect layer and storage wallets that have direct transfers
     for layer_addr, metrics in wallet_metrics.items():
@@ -422,11 +426,16 @@ def analyze_and_visualize_wallet_groups(graph: TransactionsGraph, output_path: s
         "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
     ]
 
+    # Store the mapping of group numbers to colors for legend creation
+    group_num_to_color = {}
+
     # Assign colors to wallet groups
     for i, group in enumerate(wallet_groups):
         color = color_palette[i % len(color_palette)]
+        group_num = i + 1  # Group number (1-based)
+        group_num_to_color[group_num] = color
         for wallet in group:
-            group_colors[wallet] = color
+            group_colors[wallet] = (color, group_num)  # Now storing tuple of (color, group_num)
 
     # Extract wallet features for additional information
     wallet_features = extract_wallet_features(graph, None)

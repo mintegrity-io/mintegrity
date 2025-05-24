@@ -1,3 +1,5 @@
+from enum import IntEnum
+
 from scripts.commons.transactions_metadata_scraper import get_address_interactions
 from scripts.graph.model.transactions_graph import *
 
@@ -6,7 +8,7 @@ log = get_logger()
 # Add a limit to the number of nodes and transactions to avoid excessive memory and API usage
 MAX_NODES_PER_GRAPH = 5000
 MAX_TRANSACTIONS_PER_GRAPH = 10000
-MAX_TRANSACTIONS_PER_NODE = 1000
+MAX_TRANSACTIONS_PER_NODE = 2000
 
 
 # Track state of address processing
@@ -50,9 +52,8 @@ class TransactionsGraphBuilder:
                 self.add_all_interactions_for_address_and_mark_it_as_processed(address)
 
             if self._termination_condition():
+                log.warning("Termination condition met. Stopping graph building.")
                 break
-
-        log.warning("Termination condition met. Stopping graph building.")
         return self.graph
 
     def _termination_condition(self):
@@ -60,10 +61,14 @@ class TransactionsGraphBuilder:
         Check if the graph building process should be terminated based on the number of nodes and transactions.
         """
         if self.graph.get_number_of_nodes() > MAX_NODES_PER_GRAPH:
-            self.mark_all_not_processed_addresses_as_partially_processed(f"Graph has reached maximum number of nodes: {MAX_NODES_PER_GRAPH}")
+            reason = f"Graph has reached maximum number of nodes: {MAX_NODES_PER_GRAPH}"
+            log.warning(reason)
+            self.mark_all_not_processed_addresses_as_partially_processed(reason)
             return True
         if self.graph.get_number_of_transactions() > MAX_TRANSACTIONS_PER_GRAPH:
-            self.mark_all_not_processed_addresses_as_partially_processed(f"Graph has reached maximum number of transactions: {MAX_TRANSACTIONS_PER_GRAPH}")
+            reason = f"Graph has reached maximum number of transactions: {self.graph.get_number_of_transactions()}"
+            log.warning(reason)
+            self.mark_all_not_processed_addresses_as_partially_processed(reason)
             return True
         if len(self.addresses_to_process) == 0:
             log.info("No more addresses to process. Stopping graph building.")
@@ -95,7 +100,7 @@ class TransactionsGraphBuilder:
         return addresses_to_process
 
     def add_all_interactions_for_address_and_mark_it_as_processed(self, address: Address):
-        interactions_with_address: set[tuple[InteractionDirection, Transaction]] = get_address_interactions(address, self.from_time, self.to_time)
+        interactions_with_address: set[tuple[InteractionDirection, Transaction]] = get_address_interactions(address, self.from_time, self.to_time, limit=MAX_TRANSACTIONS_PER_NODE)
         number_of_interactions_to_add: int = len(interactions_with_address)
         if number_of_interactions_to_add <= MAX_TRANSACTIONS_PER_NODE:
             for interaction_entry in interactions_with_address:

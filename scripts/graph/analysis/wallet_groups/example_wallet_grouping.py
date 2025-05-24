@@ -11,11 +11,11 @@ from scripts.commons.logging_config import get_logger
 log = get_logger()
 
 # Path to graph file (60 days of data for comprehensive analysis)
-GRAPH_NAME = "rocket_pool_graph_60_days"
+GRAPH_NAME = "rocket_pool_full_graph_60_days"
 GRAPH_PATH = f"../../files/{GRAPH_NAME}.json"
 
 # Analysis threshold - minimum coordination score to consider wallets related (0-10 scale)
-COORDINATION_THRESHOLD = 9
+COORDINATION_THRESHOLD = 5
 
 # Path to save coordination visualization
 OUTPUT_PATH = f"../../files/wallet_groups/{GRAPH_NAME}_wallet_coordination_groups_{int(COORDINATION_THRESHOLD)}.html"

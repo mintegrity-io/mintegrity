@@ -651,7 +651,7 @@ def visualize_categorized_transactions_graph(
 def visualize_graph(
         graph: TransactionsGraph,
         filename: Optional[str] = None,
-        node_colors: Optional[Dict[str, str]] = None,
+        node_colors: Optional[Dict[str, str or tuple]] = None,
         node_info: Optional[Dict[str, Dict[str, Any]]] = None,
         title: str = "Wallet Groups Analysis",
         max_nodes: Optional[int] = None,
@@ -666,6 +666,7 @@ def visualize_graph(
         graph: The TransactionsGraph to visualize
         filename: Path to save the visualization (HTML for interactive)
         node_colors: Dictionary mapping addresses to colors (for group visualization)
+                     Can be either a color string or a tuple (color, group_num)
         node_info: Dictionary mapping addresses to additional information to display in hover
         title: Title for the visualization
         max_nodes: Maximum number of nodes to include (randomly samples if graph is larger)
@@ -678,15 +679,30 @@ def visualize_graph(
     # Create a NetworkX graph
     G = nx.DiGraph()
 
+    # Process node_colors to extract actual colors and group numbers
+    processed_colors = {}
+    group_num_map = {}  # Map from group number to color
+
+    if node_colors:
+        for addr, color_data in node_colors.items():
+            if isinstance(color_data, tuple):
+                # New format (color, group_num)
+                color, group_num = color_data
+                processed_colors[addr] = color
+                group_num_map[group_num] = color
+            else:
+                # Old format (just color)
+                processed_colors[addr] = color_data
+
     # Handle node sampling if needed
     nodes_to_visualize = list(graph.nodes.values())
     if max_nodes and len(graph.nodes) > max_nodes:
         # If we have node_colors, prioritize nodes with colors assigned
-        if node_colors:
+        if processed_colors:
             colored_nodes = [n for n in nodes_to_visualize
-                           if n.address.address in node_colors and n.type == NodeType.WALLET]
+                           if n.address.address in processed_colors and n.type == NodeType.WALLET]
             remaining_nodes = [n for n in nodes_to_visualize
-                             if n.address.address not in node_colors or n.type != NodeType.WALLET]
+                             if n.address.address not in processed_colors or n.type != NodeType.WALLET]
 
             # If we still have too many nodes, sample from each category
             if len(colored_nodes) > max_nodes * 0.8:  # Keep 80% colored, 20% uncolored
@@ -707,19 +723,35 @@ def visualize_graph(
     for node in nodes_to_visualize:
         # Determine if node belongs to a group (has color assigned)
         group_id = None
-        if node_colors and node.address.address in node_colors:
-            group_id = node_colors[node.address.address]
+        group_num = None
+        if processed_colors and node.address.address in processed_colors:
+            color = processed_colors[node.address.address]
+            # Check if we have group information from the tuple format
+            if node_colors and isinstance(node_colors[node.address.address], tuple):
+                _, group_num = node_colors[node.address.address]
+                group_id = f"Group {group_num}"
+            else:
+                group_id = color  # Just use the color as group ID
 
         # Get additional node info if available
         info = {}
         if node_info and node.address.address in node_info:
             info = node_info[node.address.address]
+            # If we have group info from node_info, use it
+            if 'group' in info and not group_id:
+                group_id = info['group']
+                if group_id.startswith('Group '):
+                    try:
+                        group_num = int(group_id.split(' ')[1])
+                    except (ValueError, IndexError):
+                        pass
 
         G.add_node(
             node.address.address,
             type=node.type.name,
             address_type=node.address.type.name,
             group=group_id,
+            group_num=group_num,  # Store group number separately
             info=info
         )
 
@@ -734,12 +766,14 @@ def visualize_graph(
             value = edge.get_total_transactions_value_usd()
 
             is_strong_connection = False
-            if highlight_direct_connections and node_colors:
+            if highlight_direct_connections and processed_colors:
                 # Check if both nodes are in the same group
-                if (from_addr in node_colors and to_addr in node_colors and
-                    node_colors[from_addr] == node_colors[to_addr]):
-                    is_strong_connection = True
-                    strong_edges.add((from_addr, to_addr))
+                if (from_addr in processed_colors and to_addr in processed_colors):
+                    from_color = processed_colors[from_addr]
+                    to_color = processed_colors[to_addr]
+                    if from_color == to_color:
+                        is_strong_connection = True
+                        strong_edges.add((from_addr, to_addr))
 
             G.add_edge(from_addr, to_addr,
                        weight=value,
@@ -886,8 +920,43 @@ def visualize_graph(
         "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
     ]
 
-    # Create a trace for each group
-    for group_id, nodes in grouped_nodes.items():
+    # Extract group identifiers and ensure proper sorting
+    # For "Group X" format, sort numerically, otherwise alphabetically
+    group_ids = list(grouped_nodes.keys())
+
+    # Separate numeric groups and other groups
+    numeric_groups = []
+    other_groups = []
+
+    for group_id in group_ids:
+        if group_id is None:
+            continue  # Skip None (will be processed separately)
+        elif isinstance(group_id, str) and group_id.startswith("Group "):
+            try:
+                group_num = int(group_id.split(" ")[1])
+                numeric_groups.append((group_id, group_num))
+            except (ValueError, IndexError):
+                other_groups.append(group_id)
+        else:
+            other_groups.append(group_id)
+
+    # Sort numeric groups by their number
+    numeric_groups.sort(key=lambda x: x[1])
+    sorted_numeric_groups = [g[0] for g in numeric_groups]
+
+    # Sort other groups alphabetically
+    other_groups.sort()
+
+    # Combine sorted lists, with numeric groups first, then other groups, and None at the end
+    sorted_group_ids = sorted_numeric_groups + other_groups
+    if None in group_ids:
+        sorted_group_ids.append(None)
+
+    # Create a trace for each group (in order)
+    node_trace_data = []  # We'll collect trace data and sort later
+
+    for group_id in sorted_group_ids:
+        nodes = grouped_nodes[group_id]
         node_x = []
         node_y = []
         node_text = []
@@ -915,40 +984,45 @@ def visualize_graph(
             if node_info and node in node_info:
                 info = node_info[node]
                 for key, value in info.items():
-                    if key != 'address':  # Skip address since we already show it
+                    if key != 'address' and key != 'group':  # Skip address since we already show it
                         hover += f"<b>{key.replace('_', ' ').title()}:</b> {value}<br>"
 
             # Add group information
             if group_id:
-                # If the group_id is a color string, extract a group number
-                if group_id.startswith('#'):
-                    # Find index in group colors
-                    group_ids = list(grouped_nodes.keys())
-                    group_num = group_ids.index(group_id) + 1
-                    hover += f"<b>Group:</b> Group {group_num}<br>"
-                else:
-                    hover += f"<b>Group:</b> {group_id}<br>"
+                hover += f"<b>Group:</b> {group_id}<br>"
 
             node_hovertext.append(hover)
 
-        # Determine color for the group
+        # Determine color and name for the group
         if group_id is None:
             # Ungrouped nodes are gray
             color = "#cccccc"  # Light gray
             name = "Ungrouped Nodes"
-        elif isinstance(group_id, str) and group_id.startswith('#'):
-            # Use the color specified in node_colors
-            color = group_id
-            # Get group number for the name
-            group_ids = list(grouped_nodes.keys())
-            group_num = group_ids.index(group_id) + 1
-            name = f"Group {group_num}"
+            sort_key = "ZZZ"  # Ensures it appears last in legend
+        elif isinstance(group_id, str) and group_id.startswith("Group "):
+            # For groups with explicit numbering
+            try:
+                group_num = int(group_id.split(" ")[1])
+                name = f"Group {group_num}"
+
+                # Use predefined color from group_num_map if available
+                if group_num in group_num_map:
+                    color = group_num_map[group_num]
+                else:
+                    color = base_colors[(group_num - 1) % len(base_colors)]
+
+                # Sort key ensures proper ordering (Group 1, Group 2, etc.)
+                sort_key = f"A{group_num:04d}"
+            except (ValueError, IndexError):
+                # Fallback for malformed "Group X" strings
+                color = base_colors[sorted_group_ids.index(group_id) % len(base_colors)]
+                name = group_id
+                sort_key = f"B{group_id}"
         else:
-            # Assign a color from our palette based on group index
-            group_ids = list(grouped_nodes.keys())
-            color_idx = group_ids.index(group_id) % len(base_colors)
-            color = base_colors[color_idx]
-            name = f"Group {group_id}"
+            # For other group identifiers
+            color = base_colors[sorted_group_ids.index(group_id) % len(base_colors)]
+            name = str(group_id)
+            sort_key = f"C{name}"
 
         # Create the scatter trace
         node_trace = go.Scatter(
@@ -967,11 +1041,28 @@ def visualize_graph(
             textfont=dict(size=10)
         )
 
-        node_traces.append(node_trace)
+        # Store the trace data with its sort key for later ordering
+        node_trace_data.append((sort_key, node_trace))
 
-    # Create figure
+    # Sort the node traces to ensure consistent legend ordering
+    node_trace_data.sort(key=lambda x: x[0])
+
+    # Create the node traces in the sorted order
+    sorted_node_traces = [trace for _, trace in node_trace_data]
+
+    # Make sure we don't have any duplicate entries in the legend
+    seen_names = set()
+    for trace in sorted_node_traces:
+        if trace.name in seen_names:
+            # If we've already seen this name, don't show it again in the legend
+            trace.showlegend = False
+        else:
+            seen_names.add(trace.name)
+            trace.showlegend = True
+
+    # Create figure with all traces - edges first, then node traces
     fig = go.Figure(
-        data=edge_traces + node_traces,
+        data=edge_traces + sorted_node_traces,
         layout=go.Layout(
             title=title,
             showlegend=True,
@@ -981,7 +1072,9 @@ def visualize_graph(
                 y=0.99,
                 xanchor="left",
                 x=0.01,
-                bgcolor='rgba(255, 255, 255, 0.8)'
+                bgcolor='rgba(255, 255, 255, 0.8)',
+                # Sort items in the legend
+                traceorder='grouped'
             ),
             hovermode='closest',
             margin=dict(b=20, l=5, r=5, t=40),
@@ -1023,7 +1116,6 @@ def visualize_graph(
             fig.write_html(filename)
         else:
             fig.write_image(filename, width=1200, height=800, scale=2)
-        log.info(f"Wallet coordination graph visualization saved to {filename}")
+        print(f"Graph visualization saved to {filename}")
 
     return fig
-
