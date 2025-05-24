@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from enum import StrEnum, IntEnum
+from enum import StrEnum
 from typing import Any
 
 from scripts.commons.logging_config import get_logger

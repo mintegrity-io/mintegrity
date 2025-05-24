@@ -1,16 +1,17 @@
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+
+import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
-from collections import Counter
 
 from scripts.commons.logging_config import get_logger
-from scripts.graph.model.transactions_graph import TransactionsGraph, Node, NodeType
-from scripts.graph.categorization.wallet_categorizer import WalletStats
 from scripts.graph.categorization.graph_categorizer import CategorizedNode
+from scripts.graph.categorization.wallet_categorizer import WalletStats
+from scripts.graph.model.transactions_graph import TransactionsGraph, NodeType
 
 log = get_logger()
 
@@ -341,13 +342,14 @@ def cluster_wallets_dbscan(features: Dict[str, WalletFeatures], eps: float = 0.5
     return result
 
 
-def visualize_clusters_2d(clustering_result: ClusteringResult, feature_indices: Tuple[int, int] = (0, 2)) -> plt.Figure:
+def visualize_clusters_2d(clustering_result: ClusteringResult, feature_indices: Tuple[int, int] = (0, 2), graph_name: str = None) -> plt.Figure:
     """
     Create a 2D visualization of wallet clusters using specified features
 
     Args:
         clustering_result: Result from clustering
         feature_indices: Tuple of two indices selecting which features to plot
+        graph_name: Optional name of the graph to include in the title
 
     Returns:
         Matplotlib figure object
@@ -403,7 +405,12 @@ def visualize_clusters_2d(clustering_result: ClusteringResult, feature_indices: 
     # Set labels and title
     ax.set_xlabel(feature_names[feature_indices[0]], fontsize=14)
     ax.set_ylabel(feature_names[feature_indices[1]], fontsize=14)
-    ax.set_title("Wallet Clusters Visualization", fontsize=16)
+
+    # Create title with graph name if provided
+    title = "Wallet Clusters Visualization"
+    if graph_name:
+        title = f"{title} - {graph_name}"
+    ax.set_title(title, fontsize=16)
 
     # Add legend
     ax.legend(fontsize=12)

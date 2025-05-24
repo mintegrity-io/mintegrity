@@ -1,10 +1,9 @@
-import time
-import requests
 import os
+import time
 
+import requests
 from dotenv import load_dotenv
 
-from scripts.commons.logging_config import get_logger
 from scripts.commons.known_token_list import ETH_TOKENS_WHITELIST, ETH_TOKENS_BLACKLIST
 from scripts.commons.model import *
 

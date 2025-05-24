@@ -1,8 +1,3 @@
-from dataclasses import dataclass
-from enum import IntEnum
-
-from scripts.commons.metadata import get_token_price_usd
-from scripts.commons.logging_config import get_logger
 from scripts.commons.model import *
 
 log = get_logger()

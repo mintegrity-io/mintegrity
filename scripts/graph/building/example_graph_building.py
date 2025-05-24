@@ -1,10 +1,10 @@
 from dateutil import parser
 
 from scripts.commons import metadata
-from scripts.commons.transactions_metadata_scraper import get_smart_contracts_by_issuer
 from scripts.commons.model import *
-from scripts.graph.model.transactions_graph import TransactionsGraph
+from scripts.commons.transactions_metadata_scraper import get_smart_contracts_by_issuer
 from scripts.graph.building.transactions_graph_builder import TransactionsGraphBuilder
+from scripts.graph.model.transactions_graph import TransactionsGraph
 from scripts.graph.util.transactions_graph_json import save_graph_to_json
 
 metadata.init()

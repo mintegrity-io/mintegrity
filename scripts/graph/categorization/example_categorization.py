@@ -1,10 +1,8 @@
 import json
 
 from scripts.commons import metadata
-from scripts.graph.building.transactions_graph_builder import MAX_NODES_PER_GRAPH
 from scripts.graph.categorization.graph_categorizer import categorize_graph, CategorizedNode
 from scripts.graph.model.transactions_graph import TransactionsGraph
-from scripts.graph.visualization.transaction_graph_visualization import visualize_categorized_transactions_graph
 
 metadata.init()
 

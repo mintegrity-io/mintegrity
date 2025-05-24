@@ -2,8 +2,8 @@ from dateutil import parser
 
 from scripts.commons import metadata
 from scripts.commons.model import *
-from scripts.graph.model.transactions_graph import TransactionsGraph
 from scripts.graph.building.transactions_graph_builder import TransactionsGraphBuilder
+from scripts.graph.model.transactions_graph import TransactionsGraph
 from scripts.graph.util.transactions_graph_json import save_graph_to_json
 
 FROM_TIME = int(parser.parse("2025-03-25T00:00:00Z").timestamp())

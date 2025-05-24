@@ -1,26 +1,22 @@
 import json
-import matplotlib.pyplot as plt
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 from scripts.commons import metadata
+from scripts.graph.analysis.clustering.wallet_clustering import extract_wallet_features, cluster_wallets_kmeans, visualize_clusters_2d, cluster_wallets_dbscan
 from scripts.graph.categorization.graph_categorizer import CategorizedNode, categorize_graph
 from scripts.graph.model.transactions_graph import TransactionsGraph
-from scripts.graph.clustering.wallet_clustering import (
-    extract_wallet_features,
-    cluster_wallets_kmeans,
-    cluster_wallets_dbscan,
-    visualize_clusters_2d
-)
 
 metadata.init()
 
 GRAPH_FILE_NAME = "rocket_pool_graph_60_days"
 
-graph = TransactionsGraph.from_dict(json.load(open(f"../files/{GRAPH_FILE_NAME}.json")))
+graph = TransactionsGraph.from_dict(json.load(open(f"../../files/{GRAPH_FILE_NAME}.json")))
 categorized_nodes: dict[str, CategorizedNode] = categorize_graph(graph)
 
 # Create output directory if it doesn't exist
-output_dir = Path("../files/clustering_results")
+output_dir = Path("../../files/clustering_results")
 output_dir.mkdir(exist_ok=True)
 
 # Extract features from wallet nodes

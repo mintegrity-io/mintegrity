@@ -1,12 +1,15 @@
-import plotly.graph_objects as go
-import networkx as nx
 import random
-from typing import Optional, List, Dict
+from typing import Optional, Dict, Any
+
+import networkx as nx
 import numpy as np
-from scripts.graph.model.transactions_graph import TransactionsGraph, NodeType, Node
+import plotly.graph_objects as go
+
 from scripts.graph.categorization.graph_categorizer import CategorizedNode
-from scripts.graph.categorization.wallet_categorizer import WalletType
-from scripts.graph.categorization.contract_categorizer import ContractType
+from scripts.graph.model.transactions_graph import TransactionsGraph, NodeType
+from scripts.commons.logging_config import get_logger
+
+log = get_logger()
 
 
 def visualize_transactions_graph(
@@ -641,6 +644,386 @@ def visualize_categorized_transactions_graph(
         else:
             fig.write_image(filename, width=1200, height=800, scale=2)
         print(f"Graph visualization saved to {filename}")
+
+    return fig
+
+
+def visualize_graph(
+        graph: TransactionsGraph,
+        filename: Optional[str] = None,
+        node_colors: Optional[Dict[str, str]] = None,
+        node_info: Optional[Dict[str, Dict[str, Any]]] = None,
+        title: str = "Wallet Groups Analysis",
+        max_nodes: Optional[int] = None,
+        layout_iterations: int = 100,
+        highlight_direct_connections: bool = True
+) -> go.Figure:
+    """
+    Creates an interactive visualization of wallet groups that are likely controlled by the same operator.
+    This function is specifically designed to visualize the results of wallet coordination analysis.
+
+    Args:
+        graph: The TransactionsGraph to visualize
+        filename: Path to save the visualization (HTML for interactive)
+        node_colors: Dictionary mapping addresses to colors (for group visualization)
+        node_info: Dictionary mapping addresses to additional information to display in hover
+        title: Title for the visualization
+        max_nodes: Maximum number of nodes to include (randomly samples if graph is larger)
+        layout_iterations: Number of iterations for the layout algorithm
+        highlight_direct_connections: Whether to highlight direct connections between grouped wallets
+
+    Returns:
+        A Plotly Figure object
+    """
+    # Create a NetworkX graph
+    G = nx.DiGraph()
+
+    # Handle node sampling if needed
+    nodes_to_visualize = list(graph.nodes.values())
+    if max_nodes and len(graph.nodes) > max_nodes:
+        # If we have node_colors, prioritize nodes with colors assigned
+        if node_colors:
+            colored_nodes = [n for n in nodes_to_visualize
+                           if n.address.address in node_colors and n.type == NodeType.WALLET]
+            remaining_nodes = [n for n in nodes_to_visualize
+                             if n.address.address not in node_colors or n.type != NodeType.WALLET]
+
+            # If we still have too many nodes, sample from each category
+            if len(colored_nodes) > max_nodes * 0.8:  # Keep 80% colored, 20% uncolored
+                colored_sample_size = int(max_nodes * 0.8)
+                colored_nodes = random.sample(colored_nodes, colored_sample_size)
+
+            remaining_sample_size = max_nodes - len(colored_nodes)
+            if remaining_sample_size > 0 and remaining_nodes:
+                remaining_nodes = random.sample(remaining_nodes, min(remaining_sample_size, len(remaining_nodes)))
+
+            nodes_to_visualize = colored_nodes + remaining_nodes
+        else:
+            nodes_to_visualize = random.sample(nodes_to_visualize, max_nodes)
+
+    log.info(f"Visualizing {len(nodes_to_visualize)} nodes out of {len(graph.nodes)}")
+
+    # Add nodes to NetworkX graph
+    for node in nodes_to_visualize:
+        # Determine if node belongs to a group (has color assigned)
+        group_id = None
+        if node_colors and node.address.address in node_colors:
+            group_id = node_colors[node.address.address]
+
+        # Get additional node info if available
+        info = {}
+        if node_info and node.address.address in node_info:
+            info = node_info[node.address.address]
+
+        G.add_node(
+            node.address.address,
+            type=node.type.name,
+            address_type=node.address.type.name,
+            group=group_id,
+            info=info
+        )
+
+    # Add edges between nodes in our visualization set
+    strong_edges = set()  # Track edges between nodes in the same group
+    for edge_key, edge in graph.edges.items():
+        from_addr = edge.from_node.address.address
+        to_addr = edge.to_node.address.address
+
+        if from_addr in G.nodes and to_addr in G.nodes:
+            tx_count = len(edge.transactions)
+            value = edge.get_total_transactions_value_usd()
+
+            is_strong_connection = False
+            if highlight_direct_connections and node_colors:
+                # Check if both nodes are in the same group
+                if (from_addr in node_colors and to_addr in node_colors and
+                    node_colors[from_addr] == node_colors[to_addr]):
+                    is_strong_connection = True
+                    strong_edges.add((from_addr, to_addr))
+
+            G.add_edge(from_addr, to_addr,
+                       weight=value,
+                       value=value,
+                       transactions=tx_count,
+                       is_strong=is_strong_connection)
+
+    # Use spring layout for positioning with stronger attraction for grouped nodes
+    pos = nx.spring_layout(G, k=0.3, iterations=layout_iterations, seed=42, weight='weight')
+
+    # Create edge traces
+    edge_traces = []
+
+    # First create regular edges
+    regular_edges = [(u, v, d) for u, v, d in G.edges(data=True) if not d.get('is_strong', False)]
+    if regular_edges:
+        edge_x = []
+        edge_y = []
+        edge_hover = []
+
+        for u, v, d in regular_edges:
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+
+            # Calculate distance between nodes
+            dist = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
+
+            # Minimal curve for regular edges
+            curve_strength = max(0.05, 0.1 - dist * 0.05)
+
+            # Create a bezier curve for the edge path
+            n_points = 15
+            for i in range(n_points + 1):
+                t = i / n_points
+                # Calculate bezier curve point
+                control_x = (x0 + x1) / 2 + (y1 - y0) * curve_strength
+                control_y = (y0 + y1) / 2 - (x1 - x0) * curve_strength
+                # Quadratic bezier formula
+                bx = (1-t)**2 * x0 + 2*(1-t)*t * control_x + t**2 * x1
+                by = (1-t)**2 * y0 + 2*(1-t)*t * control_y + t**2 * y1
+
+                edge_x.append(bx)
+                edge_y.append(by)
+
+                # Add hover text to each point
+                hover_text = f"<b>From:</b> {u[:8]}...<br>" + \
+                           f"<b>To:</b> {v[:8]}...<br>" + \
+                           f"<b>Transactions:</b> {d['transactions']}<br>" + \
+                           f"<b>Value:</b> ${d['value']:.2f}"
+                edge_hover.append(hover_text)
+
+            # Add None to separate edges
+            edge_x.append(None)
+            edge_y.append(None)
+            edge_hover.append(None)
+
+        regular_edge_trace = go.Scatter(
+            x=edge_x,
+            y=edge_y,
+            mode='lines',
+            line=dict(
+                width=0.5,
+                color='rgba(150, 150, 150, 0.4)'  # Light gray, transparent
+            ),
+            hoverinfo='text',
+            hovertext=edge_hover,
+            showlegend=False
+        )
+        edge_traces.append(regular_edge_trace)
+
+    # Then create "strong" edges (between wallets in same group)
+    strong_edges_list = [(u, v, d) for u, v, d in G.edges(data=True) if d.get('is_strong', False)]
+    if strong_edges_list:
+        edge_x = []
+        edge_y = []
+        edge_hover = []
+
+        for u, v, d in strong_edges_list:
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+
+            # Calculate distance between nodes
+            dist = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
+
+            # More pronounced curve for strong edges
+            curve_strength = max(0.15, 0.2 - dist * 0.05)
+
+            # Create a bezier curve for the edge path
+            n_points = 20
+            for i in range(n_points + 1):
+                t = i / n_points
+                # Calculate bezier curve point
+                control_x = (x0 + x1) / 2 + (y1 - y0) * curve_strength
+                control_y = (y0 + y1) / 2 - (x1 - x0) * curve_strength
+                # Quadratic bezier formula
+                bx = (1-t)**2 * x0 + 2*(1-t)*t * control_x + t**2 * x1
+                by = (1-t)**2 * y0 + 2*(1-t)*t * control_y + t**2 * y1
+
+                edge_x.append(bx)
+                edge_y.append(by)
+
+                # Add hover text to each point
+                hover_text = f"<b>SAME OPERATOR CONNECTION</b><br>" + \
+                           f"<b>From:</b> {u[:8]}...<br>" + \
+                           f"<b>To:</b> {v[:8]}...<br>" + \
+                           f"<b>Transactions:</b> {d['transactions']}<br>" + \
+                           f"<b>Value:</b> ${d['value']:.2f}"
+                edge_hover.append(hover_text)
+
+            # Add None to separate edges
+            edge_x.append(None)
+            edge_y.append(None)
+            edge_hover.append(None)
+
+        strong_edge_trace = go.Scatter(
+            x=edge_x,
+            y=edge_y,
+            mode='lines',
+            line=dict(
+                width=2.0,
+                color='rgba(50, 50, 200, 0.7)'  # Bold blue for strong connections
+            ),
+            hoverinfo='text',
+            hovertext=edge_hover,
+            name='Same Operator Connection',
+            showlegend=True
+        )
+        edge_traces.append(strong_edge_trace)
+
+    # Create node traces
+    node_traces = []
+
+    # Group nodes by their assigned group
+    grouped_nodes = {}
+    for node, attrs in G.nodes(data=True):
+        group = attrs.get('group', None)
+        if group not in grouped_nodes:
+            grouped_nodes[group] = []
+        grouped_nodes[group].append(node)
+
+    # Create color assignment for groups that don't have predefined colors
+    base_colors = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+        "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+    ]
+
+    # Create a trace for each group
+    for group_id, nodes in grouped_nodes.items():
+        node_x = []
+        node_y = []
+        node_text = []
+        node_size = []
+        node_hovertext = []
+
+        for node in nodes:
+            x, y = pos[node]
+            node_x.append(x)
+            node_y.append(y)
+
+            # Shorter display text
+            node_text.append(node[:6] + "...")
+
+            # Size based on connections
+            size = 10 + min(G.degree(node) * 2, 20)
+            node_size.append(size)
+
+            # Create detailed hover text
+            hover = f"<b>Address:</b> {node}<br>"
+            hover += f"<b>Type:</b> {G.nodes[node]['type']}<br>"
+            hover += f"<b>Connections:</b> {G.degree(node)}<br>"
+
+            # Add info from node_info if available
+            if node_info and node in node_info:
+                info = node_info[node]
+                for key, value in info.items():
+                    if key != 'address':  # Skip address since we already show it
+                        hover += f"<b>{key.replace('_', ' ').title()}:</b> {value}<br>"
+
+            # Add group information
+            if group_id:
+                # If the group_id is a color string, extract a group number
+                if group_id.startswith('#'):
+                    # Find index in group colors
+                    group_ids = list(grouped_nodes.keys())
+                    group_num = group_ids.index(group_id) + 1
+                    hover += f"<b>Group:</b> Group {group_num}<br>"
+                else:
+                    hover += f"<b>Group:</b> {group_id}<br>"
+
+            node_hovertext.append(hover)
+
+        # Determine color for the group
+        if group_id is None:
+            # Ungrouped nodes are gray
+            color = "#cccccc"  # Light gray
+            name = "Ungrouped Nodes"
+        elif isinstance(group_id, str) and group_id.startswith('#'):
+            # Use the color specified in node_colors
+            color = group_id
+            # Get group number for the name
+            group_ids = list(grouped_nodes.keys())
+            group_num = group_ids.index(group_id) + 1
+            name = f"Group {group_num}"
+        else:
+            # Assign a color from our palette based on group index
+            group_ids = list(grouped_nodes.keys())
+            color_idx = group_ids.index(group_id) % len(base_colors)
+            color = base_colors[color_idx]
+            name = f"Group {group_id}"
+
+        # Create the scatter trace
+        node_trace = go.Scatter(
+            x=node_x, y=node_y,
+            mode='markers+text',
+            name=name,
+            marker=dict(
+                color=color,
+                size=node_size,
+                line=dict(width=1, color='white')
+            ),
+            text=node_text,
+            textposition="top center",
+            hoverinfo="text",
+            hovertext=node_hovertext,
+            textfont=dict(size=10)
+        )
+
+        node_traces.append(node_trace)
+
+    # Create figure
+    fig = go.Figure(
+        data=edge_traces + node_traces,
+        layout=go.Layout(
+            title=title,
+            showlegend=True,
+            legend=dict(
+                title="Wallet Groups",
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor='rgba(255, 255, 255, 0.8)'
+            ),
+            hovermode='closest',
+            margin=dict(b=20, l=5, r=5, t=40),
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            template="plotly_white",
+            annotations=[
+                dict(
+                    text="Wallet coordination analysis: colored groups represent wallets likely managed by the same operator",
+                    showarrow=False,
+                    xref="paper", yref="paper",
+                    x=0.5, y=-0.05,
+                    font=dict(size=12)
+                )
+            ]
+        )
+    )
+
+    # Add zoom and pan tools
+    fig.update_layout(
+        dragmode='pan',
+        hoverlabel=dict(bgcolor="white", font_size=12),
+        updatemenus=[dict(
+            type='buttons',
+            showactive=False,
+            buttons=[
+                dict(label='Reset',
+                     method='relayout',
+                     args=[{'xaxis.range': None, 'yaxis.range': None}])
+            ],
+            x=0.05,
+            y=0.05
+        )]
+    )
+
+    # Save the figure if filename provided
+    if filename:
+        if filename.endswith('.html'):
+            fig.write_html(filename)
+        else:
+            fig.write_image(filename, width=1200, height=800, scale=2)
+        log.info(f"Wallet coordination graph visualization saved to {filename}")
 
     return fig
 

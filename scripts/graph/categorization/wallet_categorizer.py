@@ -1,6 +1,6 @@
+from collections import defaultdict
 from dataclasses import field, dataclass
 from datetime import datetime, timezone
-from collections import defaultdict
 from enum import StrEnum
 from typing import Dict, List, Optional
 

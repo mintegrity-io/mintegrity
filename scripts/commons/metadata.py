@@ -1,8 +1,8 @@
 import json
 from datetime import datetime
 
-from scripts.commons.logging_config import get_logger
 from scripts.commons.known_token_list import ETH_TOKENS_WHITELIST
+from scripts.commons.logging_config import get_logger
 from scripts.commons.tokens_metadata_scraper import fetch_current_token_prices
 
 CURRENT_TOKEN_PRICES: dict[str, float] = {}
