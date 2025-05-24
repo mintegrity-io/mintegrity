@@ -1,11 +1,11 @@
 import json
 
-from scripts.commons import initialize_metadata
+from scripts.commons import metadata
 from scripts.graph.building.transactions_graph_builder import MAX_NODES_PER_GRAPH
 from scripts.graph.model.transactions_graph import TransactionsGraph
 from scripts.graph.visualization.transaction_graph_visualization import visualize_transactions_graph
 
-initialize_metadata.init()
+metadata.init()
 
 GRAPH_FILE_NAME = "rocket_pool_graph_10_days"
 

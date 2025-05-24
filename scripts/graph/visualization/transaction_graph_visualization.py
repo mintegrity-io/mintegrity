@@ -1,13 +1,10 @@
 import plotly.graph_objects as go
 import networkx as nx
 import random
-from typing import Optional, Set
+from typing import Optional, List
+import numpy as np
 from scripts.graph.model.transactions_graph import TransactionsGraph, NodeType, Node
 
-# TODO make directed edges
-
-
-import numpy as np
 
 def visualize_transactions_graph(
         graph: TransactionsGraph,
@@ -33,22 +30,21 @@ def visualize_transactions_graph(
     G = nx.DiGraph()
 
     # Handle node sampling if needed
-    nodes_to_visualize: Set[Node] = graph.nodes
+    nodes_to_visualize = list(graph.nodes.values())
     if max_nodes and len(graph.nodes) > max_nodes:
         if highlight_address:
             # Keep highlight node if provided
-            highlight_node = next((n for n in graph.nodes
-                                   if n.address.address.lower() == highlight_address.lower()), None)
+            highlight_node = graph.nodes.get(highlight_address.lower())
             if highlight_node:
                 # Sample remaining nodes
-                other_nodes = graph.nodes - {highlight_node}
+                other_nodes = [n for n in nodes_to_visualize if n.address.address.lower() != highlight_address.lower()]
                 sample_size = min(max_nodes - 1, len(other_nodes))
-                sampled_nodes = set(random.sample(list(other_nodes), sample_size))
-                nodes_to_visualize = {highlight_node} | sampled_nodes
+                sampled_nodes = random.sample(other_nodes, sample_size)
+                nodes_to_visualize = [highlight_node] + sampled_nodes
             else:
-                nodes_to_visualize = set(random.sample(list(graph.nodes), max_nodes))
+                nodes_to_visualize = random.sample(nodes_to_visualize, max_nodes)
         else:
-            nodes_to_visualize = set(random.sample(list(graph.nodes), max_nodes))
+            nodes_to_visualize = random.sample(nodes_to_visualize, max_nodes)
 
     # Add nodes to NetworkX graph
     for node in nodes_to_visualize:
@@ -60,7 +56,7 @@ def visualize_transactions_graph(
         )
 
     # Add edges between nodes in our visualization set
-    for edge in graph.edges:
+    for edge_key, edge in graph.edges.items():
         from_addr = edge.from_node.address.address
         to_addr = edge.to_node.address.address
 
@@ -293,8 +289,3 @@ def visualize_transactions_graph(
         print(f"Graph visualization saved to {filename}")
 
     return fig
-
-# Usage example:
-# graph = TransactionsGraph.from_dict(json.load(open("your_graph.json")))
-# fig = visualize_transactions_graph(graph, "transaction_graph.html", max_nodes=100)
-# fig.show()  # Display in notebook or browser

@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from enum import IntEnum
 
+from scripts.commons.metadata import get_token_price_usd
 from scripts.commons.logging_config import get_logger
 from scripts.commons.model import *
-from scripts.commons.token_prices import get_token_price_usd
 
 log = get_logger()
 
@@ -36,7 +36,12 @@ class Node:
 class Edge:
     from_node: Node
     to_node: Node
-    transactions: set[Transaction]  # it is possible and likely, that multiple transactions exist between the same nodes, e.g. many interactions between two wallets
+    transactions: dict[str, Transaction]  # Using transaction_hash as key for efficient lookups
+
+    def __init__(self, from_node: Node, to_node: Node, transactions=None):
+        self.from_node = from_node
+        self.to_node = to_node
+        self.transactions = transactions if transactions is not None else {}
 
     def __hash__(self):
         # Only hash based on from_node and to_node which are constant
@@ -52,7 +57,7 @@ class Edge:
         return {
             "from_node": self.from_node.to_dict(),
             "to_node": self.to_node.to_dict(),
-            "transactions": [tx.to_dict() for tx in self.transactions]
+            "transactions": [tx.to_dict() for tx in self.transactions.values()]
         }
 
     @classmethod
@@ -67,31 +72,39 @@ class Edge:
             from_node = Node.from_dict(data["from_node"])
             to_node = Node.from_dict(data["to_node"])
 
-        transactions = {Transaction.from_dict(tx) for tx in data["transactions"]}
-        return cls(from_node=from_node, to_node=to_node, transactions=transactions)
+        # Convert list of transactions to dictionary with hash as key
+        transactions_dict = {}
+        for tx_data in data["transactions"]:
+            tx = Transaction.from_dict(tx_data)
+            transactions_dict[tx.transaction_hash] = tx
+
+        return cls(from_node=from_node, to_node=to_node, transactions=transactions_dict)
 
     def add_transaction(self, transaction: Transaction):
-        if transaction not in self.transactions:
-            self.transactions.add(transaction)
-            log.info(f"Transaction added to edge: {transaction.transaction_hash} from {self.from_node.address} to {self.to_node.address}")
+        if transaction.transaction_hash not in self.transactions:
+            self.transactions[transaction.transaction_hash] = transaction
+            log.info(f"Transaction added to edge: {transaction.transaction_hash} from {self.from_node.address.address} to {self.to_node.address.address}")
         else:
             log.debug(f"Transaction {transaction.transaction_hash} already exists in edge. Skipping addition")
 
     def get_total_transactions_value_usd(self) -> float:
         total_value_usd = 0
-        for transaction in self.transactions:
+        for transaction in self.transactions.values():
             total_value_usd += transaction.value * get_token_price_usd(transaction.token_symbol, transaction.timestamp)
         return total_value_usd
 
 
 class TransactionsGraph:
-    nodes: set[Node] = set()
-    edges: set[Edge] = set()
+    def __init__(self):
+        # Use dictionaries for faster lookups
+        self.nodes: dict[str, Node] = {}  # key: address string
+        self.edges: dict[tuple[str, str], Edge] = {}  # key: (from_address, to_address)
+        self.tx_to_edge: dict[str, tuple[str, str]] = {}  # key: transaction_hash, value: edge key
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "nodes": [node.to_dict() for node in self.nodes],
-            "edges": [edge.to_dict() for edge in self.edges]
+            "nodes": [node.to_dict() for node in self.nodes.values()],
+            "edges": [edge.to_dict() for edge in self.edges.values()]
         }
 
     @classmethod
@@ -99,21 +112,30 @@ class TransactionsGraph:
         graph = cls()
 
         # First create all nodes
-        node_map = {}
         for node_data in data["nodes"]:
             node = Node.from_dict(node_data)
-            graph.nodes.add(node)
-            node_map[node.address.address] = node
+            graph.nodes[node.address.address] = node
 
         # Then create edges using the node references
         for edge_data in data["edges"]:
-            edge = Edge.from_dict(edge_data, node_map)
-            graph.edges.add(edge)
+            from_address = Address.from_dict(edge_data["from_node"]["address"])
+            to_address = Address.from_dict(edge_data["to_node"]["address"])
+
+            from_node = graph.nodes[from_address.address]
+            to_node = graph.nodes[to_address.address]
+
+            edge = Edge.from_dict(edge_data, graph.nodes)
+            edge_key = (from_node.address.address, to_node.address.address)
+            graph.edges[edge_key] = edge
+
+            # Map transaction hashes to edge key for quick lookups
+            for tx_hash in edge.transactions:
+                graph.tx_to_edge[tx_hash] = edge_key
 
         return graph
 
     def add_node_if_not_exists(self, address: Address, is_root: bool = False) -> Node:
-        if not self.is_node_in_graph_by_address(address):
+        if address.address not in self.nodes:
             if is_root:
                 node_type = NodeType.ROOT
             else:
@@ -124,61 +146,59 @@ class TransactionsGraph:
                 else:
                     raise ValueError(f"Unknown address type: {address.type}")
             new_node = Node(address, node_type)
-            self.nodes.add(new_node)
-            log.info(f"Node added: {new_node.address} of type {new_node.type.name}")
+            self.nodes[address.address] = new_node
+            log.info(f"Node added: {new_node.address.address} of type {new_node.type.name}")
         else:
-            log.debug(f"Node with address {address} in graph already exists. Skipping addition")
+            log.debug(f"Node with address {address.address} in graph already exists. Skipping addition")
 
-        return self.get_node_by_address(address)
+        return self.nodes[address.address]
 
     def add_edge_if_not_exists(self, from_node: Node, to_node: Node) -> Edge:
-        if not self.is_edge_between_nodes_in_graph(from_node, to_node):
-            new_edge = Edge(from_node, to_node, set())
-            self.edges.add(new_edge)
-            log.info(f"Edge added: {from_node.address} -> {to_node.address}")
+        edge_key = (from_node.address.address, to_node.address.address)
+        if edge_key not in self.edges:
+            new_edge = Edge(from_node, to_node)
+            self.edges[edge_key] = new_edge
+            log.info(f"Edge added: {from_node.address.address} -> {to_node.address.address}")
         else:
-            log.debug(f"Edge between {from_node.address} and {to_node.address} already exists. Skipping addition")
+            log.debug(f"Edge between {from_node.address.address} and {to_node.address.address} already exists. Skipping addition")
 
-        return self.get_edge_by_nodes(from_node, to_node)
+        return self.edges[edge_key]
 
     def is_transaction_in_graph(self, transaction: Transaction) -> bool:
-        for edge in self.edges:
-            if transaction in edge.transactions:
-                return True
-        return False
+        return transaction.transaction_hash in self.tx_to_edge
 
     def is_node_in_graph_by_address(self, address: Address) -> bool:
-        return self.get_node_by_address(address) is not None
+        return address.address in self.nodes
 
-    def get_node_by_address(self, address: Address) -> Node | None:
-        for node in self.nodes:
-            if node.address == address:
-                return node
-        return None
+    def get_node_by_address(self, address: Address) -> Node:
+        return self.nodes.get(address.address)
 
-    def is_edge_between_nodes_in_graph(self, from_node, to_node) -> bool:
-        return self.get_edge_by_nodes(from_node, to_node) is not None
+    def is_edge_between_nodes_in_graph(self, from_node: Node, to_node: Node) -> bool:
+        edge_key = (from_node.address.address, to_node.address.address)
+        return edge_key in self.edges
 
-    def get_edge_by_nodes(self, from_node, to_node) -> Edge | None:
-        for edge in self.edges:
-            if edge.from_node == from_node and edge.to_node == to_node:
-                return edge
-        return None
+    def get_edge_by_nodes(self, from_node: Node, to_node: Node) -> Edge:
+        edge_key = (from_node.address.address, to_node.address.address)
+        return self.edges.get(edge_key)
 
     def add_transaction(self, transaction: Transaction):
         """
         Add a transaction to the graph. If the transaction already exists, skip it.
         Create all corresponding nodes and edges if they do not exist.
         """
-        if self.is_transaction_in_graph(transaction):
+        if transaction.transaction_hash in self.tx_to_edge:
             log.debug(f"Transaction {transaction.transaction_hash} already exists in graph. Skipping addition")
             return
 
-        from_node: Node = self.add_node_if_not_exists(transaction.address_from)
-        to_node: Node = self.add_node_if_not_exists(transaction.address_to)
+        from_node = self.add_node_if_not_exists(transaction.address_from)
+        to_node = self.add_node_if_not_exists(transaction.address_to)
 
-        edge: Edge = self.add_edge_if_not_exists(from_node, to_node)
+        edge = self.add_edge_if_not_exists(from_node, to_node)
         edge.add_transaction(transaction)
+
+        # Add to transaction lookup map
+        edge_key = (from_node.address.address, to_node.address.address)
+        self.tx_to_edge[transaction.transaction_hash] = edge_key
 
     def get_number_of_nodes(self) -> int:
         return len(self.nodes)
@@ -187,4 +207,4 @@ class TransactionsGraph:
         return len(self.edges)
 
     def get_number_of_transactions(self) -> int:
-        return sum(len(edge.transactions) for edge in self.edges)
+        return len(self.tx_to_edge)

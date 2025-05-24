@@ -16,43 +16,57 @@ load_dotenv()
 ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY")
 
 
-def fetch_current_token_price(token_symbol: str) -> (int, float):
+def fetch_current_token_prices(token_symbols: list[str]) -> dict[str, tuple[int, float]]:
     """
-    Fetch token price from Alchemy API
+    Fetch token prices from Alchemy API in batches
 
     Args:
-        token_symbol: Token symbol (e.g., 'ETH', 'BTC')
+        token_symbols: List of token symbols (e.g., ['ETH', 'BTC'])
 
     Returns:
-        int timestamp
-        float price_usd
+        Dictionary mapping token symbol to (timestamp, price) tuple
+        Price will be 0 for unknown tokens
     """
-    # Convert datetime to timestamp if needed
-    # TODO put in one api call, Alchemy has cap of 300 request per hours
-    url = f"https://api.g.alchemy.com/prices/v1/{ALCHEMY_API_KEY}/tokens/by-symbol"
+    results = {}
+    batch_size = 25  # Alchemy API limit
 
-    params = {
-        "symbols": [token_symbol]
-    }
+    # Process tokens in batches of 25
+    for i in range(0, len(token_symbols), batch_size):
+        batch = token_symbols[i:i + batch_size]
+        url = f"https://api.g.alchemy.com/prices/v1/{ALCHEMY_API_KEY}/tokens/by-symbol"
 
-    response = requests.get(url, params=params)
+        params = {
+            "symbols": batch
+        }
 
-    if response.status_code == 200:
-        data = response.json()["data"]
+        response = requests.get(url, params=params)
 
-        # Check if we have price data for the token
-        for token_data in data:
-            if token_data.get("symbol") == token_symbol and "prices" in token_data:
-                for price_entry in token_data["prices"]:
-                    if price_entry.get("currency") == "usd" and "value" in price_entry and "lastUpdatedAt" in price_entry:
-                        # Convert ISO timestamp to Unix timestamp
-                        iso_timestamp = price_entry["lastUpdatedAt"]
-                        timestamp = int(datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00')).timestamp())
-                        current_price = float(price_entry["value"])
-                        return timestamp, current_price
+        if response.status_code == 200:
+            data = response.json()["data"]
 
-        # If we reach here, it means we didn't find the expected data
-        raise RequestException(f"Error fetching price from Alchemy for token {token_symbol}: expected parameters not found: {response.json()}")
-    else:
-        raise RequestException(f"Error fetching price from Alchemy  for token {token_symbol}: {response.json()}")
+            # Create a dictionary to easily look up token data
+            token_data_map = {item["symbol"]: item for item in data if "symbol" in item}
 
+            # Process each token in the batch
+            for token_symbol in batch:
+                if token_symbol in token_data_map and "prices" in token_data_map[token_symbol]:
+                    token_data = token_data_map[token_symbol]
+                    for price_entry in token_data["prices"]:
+                        if price_entry.get("currency") == "usd" and "value" in price_entry and "lastUpdatedAt" in price_entry:
+                            iso_timestamp = price_entry["lastUpdatedAt"]
+                            timestamp = int(datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00')).timestamp())
+                            current_price = float(price_entry["value"])
+                            results[token_symbol] = (timestamp, current_price)
+                            break
+                    else:
+                        # No USD price found
+                        log.error(f"No USD price found for token {token_symbol}")
+                        results[token_symbol] = (int(datetime.now().timestamp()), 0.0)
+                else:
+                    # Token not found in response
+                    log.error(f"Unknown token or missing price data: {token_symbol}")
+                    results[token_symbol] = (int(datetime.now().timestamp()), 0.0)
+        else:
+            raise RequestException(f"Error fetching price from Alchemy for tokens {batch}: {response.json()}")
+
+    return results
