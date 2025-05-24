@@ -58,6 +58,7 @@ def categorize_contract(graph: TransactionsGraph, node: Node) -> ContractType:
     # Heuristics for contract classification
 
     # DEX patterns: many unique senders and receivers, similar in/out value
+    # TODO refine patterns depending on time frame
     if unique_senders_count > 100 and unique_receivers_count > 100:
         if 0.8 < (stats.total_usd_in / stats.total_usd_out) < 1.2:
             return ContractType.DEX

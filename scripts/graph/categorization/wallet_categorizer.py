@@ -184,6 +184,7 @@ def categorize_wallet(graph: TransactionsGraph, node: Node) -> WalletType:
     log.debug(f"Activity Days: {activity_days:.2f}, Contracts: {unique_contracts}, In/Out Ratio: {stats.in_out_ratio:.2f}")
 
     # Advanced heuristics for wallet classification
+    # TODO refine patterns depending on time frame
 
     # EXCHANGE detection
     if (total_tx > 1000 and counterparties > 500 and activity_days > 30 and stats.in_out_ratio >= 0.85 and stats.in_out_ratio <= 1.15):
