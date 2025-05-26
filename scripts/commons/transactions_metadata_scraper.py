@@ -19,17 +19,8 @@ ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY")
 if not ALCHEMY_API_KEY:
     raise ValueError("ALCHEMY_API_KEY is not set in the environment variables.")
 
-# Initialize address type cache with hardcoded values
-_address_type_cache = {
-    # Well-known contracts
-    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2:eth-mainnet": AddressType.CONTRACT,  # WETH
-    "0x6b175474e89094c44da98b954eedeac495271d0f:eth-mainnet": AddressType.CONTRACT,  # DAI
-    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48:eth-mainnet": AddressType.CONTRACT,  # USDC
-    "0xdac17f958d2ee523a2206206994597c13d831ec7:eth-mainnet": AddressType.CONTRACT,  # USDT
-    # Well-known wallets (e.g. exchanges)
-    "0x28c6c06298d514db089934071355e5743bf21d60:eth-mainnet": AddressType.WALLET,  # Binance 14
-    "0x21a31ee1afc51d94c2efccaa2092ad1028285549:eth-mainnet": AddressType.WALLET,  # Binance Cold Wallet
-}
+# Initialize address type cache
+_address_type_cache = {}
 
 # Path to the persistent cache file
 _CACHE_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "graph", "cache", "address_type_cache.json")
@@ -130,6 +121,47 @@ def get_address_types_batch(addresses: List[str], network: str = "eth-mainnet") 
     return results
 
 
+def get_address_types(addresses: List[str], network: str = "eth-mainnet") -> Dict[str, AddressType]:
+    """
+    Determines if multiple addresses are contracts or wallets by checking if they have code.
+    Uses caching and batch processing to efficiently handle large numbers of addresses.
+
+    :param addresses: List of Ethereum addresses to check
+    :param network: Ethereum network
+    :return: Dictionary mapping addresses to their types (AddressType.CONTRACT or AddressType.WALLET)
+    """
+    if not addresses:
+        return {}
+
+    # Check cache first for all addresses
+    results = {}
+    addresses_to_check = []
+
+    for address in addresses:
+        normalized_address = address.lower()
+        cache_key = f"{normalized_address}:{network}"
+
+        # If in cache, use cached result
+        if cache_key in _address_type_cache:
+            results[address] = _address_type_cache[cache_key]
+            log.debug(f"Using cached address type for {address} on {network}")
+        else:
+            # If not in cache, add to list for batch processing
+            addresses_to_check.append(normalized_address)
+
+    # If there are addresses not in cache, process them in batch
+    if addresses_to_check:
+        batch_results = get_address_types_batch(addresses_to_check, network)
+
+        # Add batch results to the final results
+        for addr, addr_type in batch_results.items():
+            # Find the original address with original casing
+            original_addr = next((a for a in addresses if a.lower() == addr.lower()), addr)
+            results[original_addr] = addr_type
+
+    return results
+
+
 def get_address_type(address: str, network: str = "eth-mainnet") -> AddressType:
     """
     Determines if an address is a contract or a wallet by checking if it has code.
@@ -139,34 +171,17 @@ def get_address_type(address: str, network: str = "eth-mainnet") -> AddressType:
     :param network: Ethereum network
     :return: AddressType.CONTRACT if it's a contract, AddressType.WALLET if it's a wallet
     """
-    # Normalize address for consistent cache keys
-    normalized_address = address.lower()
-    cache_key = f"{normalized_address}:{network}"
+    # Use the new get_address_types function for a single address
+    result = get_address_types([address], network)
 
-    # Check if result is already in cache
-    if cache_key in _address_type_cache:
-        log.debug(f"Using cached address type for {address} on {network}")
-        return _address_type_cache[cache_key]
+    # Return the result for the address or raise an exception if not found
+    if address in result:
+        return result[address]
 
-    global _address_batch, _batch_timer
+    # If the address wasn't found in the result (which shouldn't happen),
+    # make a direct API call as a last resort
+    log.warning(f"Address {address} not found in batch results, making direct API call")
 
-    # Add to batch for processing if batch mode is enabled
-    if _batch_size > 1:
-        _address_batch[normalized_address] = network
-        current_time = time.time()
-
-        # Process the batch if it's full or if the timeout has elapsed
-        if len(_address_batch) >= _batch_size or (current_time - _batch_timer >= _batch_timeout and _address_batch):
-            addresses = list(_address_batch.keys())
-            batch_results = get_address_types_batch(addresses, network)
-            _address_batch = {}
-            _batch_timer = current_time
-
-            # If the current address was processed in the batch, return the result
-            if normalized_address in batch_results:
-                return batch_results[normalized_address]
-
-    # If not processed in batch or batch mode disabled, use individual API call
     url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
     payload = {
         "jsonrpc": "2.0",
@@ -187,10 +202,9 @@ def get_address_type(address: str, network: str = "eth-mainnet") -> AddressType:
             else:
                 result = AddressType.CONTRACT
 
-            # Store result in cache and save to persistent storage
+            # Store result in cache
+            cache_key = f"{address.lower()}:{network}"
             _address_type_cache[cache_key] = result
-            if len(_address_type_cache) % 100 == 0:  # Save periodically to avoid frequent writes
-                _save_address_type_cache()
 
             log.debug(f"Found address type for {address} on {network}: {result.name}")
             return result
@@ -391,6 +405,28 @@ def get_address_interactions(
     return interactions
 
 
+def _is_alchemy_internal_error(error_data) -> bool:
+    """
+    Check if the error from Alchemy API is an internal error that should be skipped.
+
+    :param error_data: The error data from Alchemy API response
+    :return: True if it's an internal error that should be skipped, False otherwise
+    """
+    if "error" in error_data:
+        # Handle case where error_data["error"] is a dictionary
+        if isinstance(error_data["error"], dict) and error_data["error"].get("code") in [-3200, -32603, -32000]:  # Alchemy internal errors
+            log.error(f"Detected Alchemy internal error: {error_data}")
+            return True
+        # Handle case where error_data["error"] is a string
+        elif isinstance(error_data["error"], str):
+            log.error(f"Detected Alchemy error message (string): {error_data}")
+            # Check if the error message contains any of the error codes we're looking for
+            for code in [-3200, -32603, -32000]:
+                if str(code) in error_data["error"]:
+                    return True
+    return False
+
+
 def get_interacting_addresses(
         target_address: Address,
         network: str,
@@ -453,7 +489,10 @@ def get_interacting_addresses(
                 transfers = data["result"]["transfers"]
                 log.debug(f"Retrieved {len(transfers)} transfers for {direction} direction")
 
-                # Extract the addresses from the opposite direction
+                # First, filter transfers and collect unique addresses
+                valid_transfers = []
+                unique_addresses = set()
+
                 for transfer in transfers:
                     if transfer.get("hash") and transfer.get("from") and "value" in transfer and "metadata" in transfer and "asset" in transfer:
                         # For contract creation transactions, "to" will be None
@@ -473,9 +512,21 @@ def get_interacting_addresses(
                             # Uncomment the next line to log unknown assets
                             # log.warning(f"Transfer with unknown asset {transfer.get('asset')} found, but this asset is not in the whitelist. Skipping. Transaction hash: {transfer.get('hash')}")
                             continue
-                        # Determine address types
-                        from_address_type: AddressType = get_address_type(transfer["from"])
-                        to_address_type: AddressType = get_address_type(transfer["to"])
+
+                        # Add to valid transfers and collect unique addresses
+                        valid_transfers.append(transfer)
+                        unique_addresses.add(transfer["from"])
+                        if transfer.get("to"):
+                            unique_addresses.add(transfer["to"])
+
+                # Get address types for all unique addresses in one batch call
+                if unique_addresses:
+                    address_types = get_address_types(list(unique_addresses), network)
+
+                    # Process valid transfers with the address types
+                    for transfer in valid_transfers:
+                        from_address_type = address_types.get(transfer["from"], AddressType.WALLET)  # Default to WALLET if not found
+                        to_address_type = address_types.get(transfer["to"], AddressType.WALLET)  # Default to WALLET if not found
 
                         # Create Interaction object with all required fields
                         interaction = Transaction(
@@ -490,8 +541,6 @@ def get_interacting_addresses(
                         if (len(interactions) >= limit):
                             log.info(f"Reached transaction limit of {limit} for {direction} direction. Stopping further processing.")
                             return interactions
-                    else:
-                        raise ValueError("Invalid transfer: missing required fields", transfer)
 
                 # Check for more pages
                 page_key = data["result"].get("pageKey")
@@ -499,7 +548,7 @@ def get_interacting_addresses(
                     break
             elif "error" in data:
                 log.error(f"Error from Alchemy API: {data['error']}")
-                if data["error"]["code"] in [-3200, -32603]:  # Alchemy internal errors, skip
+                if _is_alchemy_internal_error(data):
                     log.error(f"Skipping transfer because of Alchemy internal error: {data}")
                     continue
                 else:
@@ -507,7 +556,16 @@ def get_interacting_addresses(
             else:
                 raise Exception(f"Response cannot be parsed: {data}")
         else:
-            raise Exception(f"Error: {response.status_code}, {response.text}")
+            # Try to parse the response as JSON to check for error codes
+            try:
+                error_data = response.json()
+                if _is_alchemy_internal_error(error_data):
+                    log.error(f"Skipping transfer because of Alchemy internal error with status {response.status_code}: {error_data}")
+                    continue
+                else:
+                    raise Exception(f"Error: {response.status_code}, {response.text}")
+            except json.JSONDecodeError:
+                raise Exception(f"Error: {response.status_code}, {response.text}")
 
     log.info(f"Found {len(interactions)} addresses for {direction} direction")
     return interactions

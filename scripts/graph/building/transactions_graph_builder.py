@@ -8,7 +8,8 @@ log = get_logger()
 # Add a limit to the number of nodes and transactions to avoid excessive memory and API usage
 MAX_NODES_PER_GRAPH = 5000
 MAX_TRANSACTIONS_PER_GRAPH = 10000
-MAX_TRANSACTIONS_PER_NODE = 2000
+MAX_TRANSACTIONS_NORMAL_NODE = 2000
+MAX_TRANSACTIONS_ROOT_NODE = 10000  # Root nodes can have more transactions due to their central role in the graph
 
 
 # Track state of address processing
@@ -100,18 +101,22 @@ class TransactionsGraphBuilder:
         return addresses_to_process
 
     def add_all_interactions_for_address_and_mark_it_as_processed(self, address: Address):
-        interactions_with_address: set[tuple[InteractionDirection, Transaction]] = get_address_interactions(address, self.from_time, self.to_time, limit=MAX_TRANSACTIONS_PER_NODE)
+        # Check if the node is a root node
+        node = self.graph.get_node_by_address(address)
+        transaction_limit = MAX_TRANSACTIONS_ROOT_NODE if node and node.type == NodeType.ROOT else MAX_TRANSACTIONS_NORMAL_NODE
+
+        interactions_with_address: set[tuple[InteractionDirection, Transaction]] = get_address_interactions(address, self.from_time, self.to_time, limit=transaction_limit)
         number_of_interactions_to_add: int = len(interactions_with_address)
-        if number_of_interactions_to_add <= MAX_TRANSACTIONS_PER_NODE:
+        if number_of_interactions_to_add <= transaction_limit:
             for interaction_entry in interactions_with_address:
                 (_, transaction) = interaction_entry
                 self.graph.add_transaction(transaction)
             # Mark processed addresses to avoid infinite loops
             self._mark_address_as_fully_processed(address)
         else:
-            interactions_with_address_capped: set[tuple[InteractionDirection, Transaction]] = set(list(interactions_with_address)[:MAX_TRANSACTIONS_PER_NODE])
+            interactions_with_address_capped: set[tuple[InteractionDirection, Transaction]] = set(list(interactions_with_address)[:transaction_limit])
             for interaction_entry in interactions_with_address_capped:
                 (_, transaction) = interaction_entry
                 self.graph.add_transaction(transaction)
             # Mark processed addresses to avoid infinite loops
-            self.mark_address_as_partially_processed(address, f"Too many transactions to process. Capped at {MAX_TRANSACTIONS_PER_NODE}.")
+            self.mark_address_as_partially_processed(address, f"Too many transactions to process. Capped at {transaction_limit}.")

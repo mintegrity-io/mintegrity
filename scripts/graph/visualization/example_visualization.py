@@ -8,7 +8,7 @@ from scripts.graph.visualization.transaction_graph_visualization import visualiz
 
 metadata.init()
 
-GRAPH_FILE_NAME = "rocket_pool_full_graph_60_days"
+GRAPH_FILE_NAME = "rocket_pool_full_graph_90_days"
 
 graph = TransactionsGraph.from_dict(json.load(open(f"../files/{GRAPH_FILE_NAME}.json")))
 

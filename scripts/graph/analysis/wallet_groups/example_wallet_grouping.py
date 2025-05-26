@@ -27,7 +27,7 @@ log.info(f"Graph loaded with {len(graph.nodes)} nodes and {len(graph.edges)} edg
 
 # Method 1: Full analysis with visualization
 log.info("Performing full wallet coordination analysis with visualization...")
-wallet_groups, coordination_scores = analyze_and_visualize_wallet_groups(graph, OUTPUT_PATH, COORDINATION_THRESHOLD)
+wallet_groups, coordination_scores, group_distances = analyze_and_visualize_wallet_groups(graph, OUTPUT_PATH, COORDINATION_THRESHOLD)
 
 # Method 2: Step-by-step analysis (uncomment if needed)
 # coordination_scores = detect_wallet_coordination(graph)
@@ -40,7 +40,10 @@ log.info(f"{'=' * 50}")
 log.info(f"Found {len(wallet_groups)} coordinated wallet groups")
 
 for i, group in enumerate(wallet_groups):
-    log.info(f"\nGROUP {i + 1}: {len(group)} wallets")
+    group_num = i + 1
+    distance = group_distances.get(group_num, "unknown")
+    distance_info = f"distance to root: {distance}" if distance >= 0 else "no path to root found"
+    log.info(f"\nGROUP {group_num}: {len(group)} wallets ({distance_info})")
     log.info("-" * 40)
 
     # Display each wallet in the group with its coordination scores

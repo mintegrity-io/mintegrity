@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple
 import numpy as np
 from datetime import datetime, timedelta
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from scripts.commons.logging_config import get_logger
 from scripts.graph.analysis.clustering.wallet_clustering import extract_wallet_features
@@ -419,6 +419,13 @@ def analyze_and_visualize_wallet_groups(graph: TransactionsGraph, output_path: s
     global wallet_metrics  # Use the global wallet_metrics populated by detect_wallet_coordination
     wallet_groups = identify_wallet_groups(coordination_scores, wallet_metrics, threshold=threshold)
 
+    # Step 2.5: Calculate distance from each group to root nodes
+    group_distances = {}
+    for i, group in enumerate(wallet_groups):
+        distance = calculate_distance_to_root_nodes(graph, group)
+        group_distances[i+1] = distance  # Store with 1-based group numbering
+        log.info(f"Group {i+1} distance to closest root node: {distance if distance >= 0 else 'No path found'}")
+
     # Step 3: Create visualization with highlighted groups
     group_colors = {}
     color_palette = [
@@ -467,8 +474,14 @@ def analyze_and_visualize_wallet_groups(graph: TransactionsGraph, output_path: s
                 value_usd = wallet_features[addr].total_value_usd
                 tx_count = wallet_features[addr].total_tx_count
 
+            # Add distance to root for wallets in a group
+            distance_info = ""
+            if group_id is not None and group_id in group_distances:
+                distance = group_distances[group_id]
+                distance_info = f", Root Distance: {distance if distance >= 0 else 'N/A'}"
+
             node_info[addr] = {
-                "group": f"Group {group_id}" if group_id else "Ungrouped",
+                "group": f"Group {group_id}{distance_info}" if group_id else "Ungrouped",
                 "type": wallet_type,
                 "total_value_usd": value_usd,
                 "tx_count": tx_count
@@ -479,7 +492,57 @@ def analyze_and_visualize_wallet_groups(graph: TransactionsGraph, output_path: s
                     title="Wallet Groups Analysis - Potential Single-Operator Clusters")
 
     log.info(f"Visualization saved to {output_path}")
-    return wallet_groups, coordination_scores
+    return wallet_groups, coordination_scores, group_distances  # Now also returning distances
+
+
+def calculate_distance_to_root_nodes(graph: TransactionsGraph, wallet_group: Set[str]) -> int:
+    """
+    Calculate the minimum number of edges from any wallet in the group to any root node.
+
+    Args:
+        graph: Transaction graph to analyze
+        wallet_group: Set of wallet addresses in the group
+
+    Returns:
+        Minimum distance to any root node, or -1 if no path exists
+    """
+    # Find all root nodes in the graph
+    root_nodes = {addr for addr, node in graph.nodes.items() if node.type == NodeType.ROOT}
+    if not root_nodes:
+        log.warning("No root nodes found in the graph")
+        return -1
+
+    # Use BFS to find shortest path from any wallet in group to any root node
+    queue = deque()
+    visited = set()
+
+    # Add all wallets from the group as starting points
+    for wallet_addr in wallet_group:
+        queue.append((wallet_addr, 0))  # (node_address, distance)
+        visited.add(wallet_addr)
+
+    # Build a bidirectional adjacency list for faster traversal
+    adjacency_list = defaultdict(list)
+    for (from_addr, to_addr) in graph.edges:
+        adjacency_list[from_addr].append(to_addr)
+        adjacency_list[to_addr].append(from_addr)  # Add reverse direction for undirected search
+
+    # BFS
+    while queue:
+        current_addr, distance = queue.popleft()
+
+        # Check if current node is a root
+        if current_addr in root_nodes:
+            return distance
+
+        # Visit neighbors
+        for neighbor_addr in adjacency_list[current_addr]:
+            if neighbor_addr not in visited:
+                visited.add(neighbor_addr)
+                queue.append((neighbor_addr, distance + 1))
+
+    # No path found
+    return -1
 
 
 # Dictionary to store metrics for all wallets
