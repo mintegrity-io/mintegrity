@@ -412,16 +412,17 @@ def _is_alchemy_internal_error(error_data) -> bool:
     :param error_data: The error data from Alchemy API response
     :return: True if it's an internal error that should be skipped, False otherwise
     """
+    ALCHEMY_INTERNAL_ERROR_CODES = [-3200, -32603, -32000, 1002]  # Alchemy internal error codes
     if "error" in error_data:
         # Handle case where error_data["error"] is a dictionary
-        if isinstance(error_data["error"], dict) and error_data["error"].get("code") in [-3200, -32603, -32000]:  # Alchemy internal errors
+        if isinstance(error_data["error"], dict) and error_data["error"].get("code") in ALCHEMY_INTERNAL_ERROR_CODES:
             log.error(f"Detected Alchemy internal error: {error_data}")
             return True
         # Handle case where error_data["error"] is a string
         elif isinstance(error_data["error"], str):
             log.error(f"Detected Alchemy error message (string): {error_data}")
             # Check if the error message contains any of the error codes we're looking for
-            for code in [-3200, -32603, -32000]:
+            for code in ALCHEMY_INTERNAL_ERROR_CODES:
                 if str(code) in error_data["error"]:
                     return True
     return False

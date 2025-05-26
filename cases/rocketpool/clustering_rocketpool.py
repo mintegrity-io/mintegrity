@@ -11,7 +11,7 @@ from scripts.graph.model.transactions_graph import TransactionsGraph
 metadata.init()
 
 
-GRAPH_NAME = "rocket_pool_full_graph_60_days"
+GRAPH_NAME = "rocket_pool_full_graph_90_days"
 GRAPH_PATH = f"./files/{GRAPH_NAME}.json"
 graph = TransactionsGraph.from_dict(json.load(open(GRAPH_PATH)))
 
