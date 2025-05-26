@@ -1,4 +1,6 @@
 import random
+import os
+from pathlib import Path
 from typing import Optional, Dict, Any
 
 import networkx as nx
@@ -288,6 +290,10 @@ def visualize_transactions_graph(
 
     # Save the figure if filename provided
     if filename:
+        # Create directory if it doesn't exist
+        file_path = Path(filename)
+        os.makedirs(file_path.parent, exist_ok=True)
+
         if filename.endswith('.html'):
             fig.write_html(filename)
         else:
@@ -639,6 +645,10 @@ def visualize_categorized_transactions_graph(
 
     # Save the figure if filename provided
     if filename:
+        # Create directory if it doesn't exist
+        file_path = Path(filename)
+        os.makedirs(file_path.parent, exist_ok=True)
+
         if filename.endswith('.html'):
             fig.write_html(filename)
         else:
@@ -1112,6 +1122,10 @@ def visualize_graph(
 
     # Save the figure if filename provided
     if filename:
+        # Create directory if it doesn't exist
+        file_path = Path(filename)
+        os.makedirs(file_path.parent, exist_ok=True)
+
         if filename.endswith('.html'):
             fig.write_html(filename)
         else:

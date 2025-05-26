@@ -8,7 +8,7 @@ from scripts.graph.util.transactions_graph_json import save_graph_to_json
 
 FROM_TIME = int(parser.parse("2025-02-25T00:00:00Z").timestamp())
 TO_TIME = int(parser.parse("2025-05-24T00:00:00Z").timestamp())
-GRAPH_PATH = "../../files/rocket_pool_full_graph_90_days.json"
+GRAPH_PATH = "../../../../cases/rocketpool/files/rocket_pool_full_graph_90_days.json"
 
 metadata.init()
 
