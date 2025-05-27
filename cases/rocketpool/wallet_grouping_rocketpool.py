@@ -25,13 +25,9 @@ log.info(f"Loading graph from {GRAPH_PATH}")
 graph = load_graph_from_json(GRAPH_PATH)
 log.info(f"Graph loaded with {len(graph.nodes)} nodes and {len(graph.edges)} edges")
 
-# Method 1: Full analysis with visualization
+# Full analysis with visualization
 log.info("Performing full wallet coordination analysis with visualization...")
 wallet_groups, coordination_scores, group_distances = analyze_and_visualize_wallet_groups(graph, OUTPUT_PATH, COORDINATION_THRESHOLD)
-
-# Method 2: Step-by-step analysis (uncomment if needed)
-# coordination_scores = detect_wallet_coordination(graph)
-# wallet_groups = identify_wallet_groups(coordination_scores, threshold=COORDINATION_THRESHOLD)
 
 # Print summary of results
 log.info(f"\n\n{'=' * 50}")

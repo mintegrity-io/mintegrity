@@ -1,7 +1,7 @@
 import random
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union, Tuple
 
 import networkx as nx
 import numpy as np
@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 
 from scripts.graph.categorization.graph_categorizer import CategorizedNode
 from scripts.graph.model.transactions_graph import TransactionsGraph, NodeType
+from scripts.graph.optimization.graph_optimizer import optimize_transactions_graph
 from scripts.commons.logging_config import get_logger
 
 log = get_logger()
@@ -19,7 +20,14 @@ def visualize_transactions_graph(
         filename: Optional[str] = None,
         highlight_address: Optional[str] = None,
         max_nodes: Optional[int] = None,
-        layout_iterations: int = 50
+        layout_iterations: int = 50,
+        optimize_graph: bool = False,
+        remove_dust_wallets: bool = True,
+        remove_inactive_wallets: bool = True,
+        dust_wallet_tx_threshold: int = 5,
+        dust_wallet_value_threshold: float = 100,
+        inactive_days_threshold: int = 60,
+        min_transaction_value: float = 0.1
 ) -> go.Figure:
     """
     Creates an interactive visualization of the transactions graph using Plotly.
@@ -30,10 +38,30 @@ def visualize_transactions_graph(
         highlight_address: Address to highlight in the visualization
         max_nodes: Maximum number of nodes to include (randomly samples if graph is larger)
         layout_iterations: Number of iterations for the layout algorithm
+        optimize_graph: Whether to optimize the graph by removing dust wallets and inactive wallets
+        remove_dust_wallets: Whether to remove dust wallets during optimization
+        remove_inactive_wallets: Whether to remove inactive wallets during optimization
+        dust_wallet_tx_threshold: Maximum number of transactions for a dust wallet
+        dust_wallet_value_threshold: Maximum USD value for a dust wallet
+        inactive_days_threshold: Number of days without activity to consider a wallet inactive
+        min_transaction_value: Minimum USD value for a transaction to be included
 
     Returns:
         A Plotly Figure object
     """
+    # Apply graph optimization if requested
+    if optimize_graph:
+        log.info("Optimizing graph before visualization")
+        graph = optimize_transactions_graph(
+            graph=graph,
+            remove_dust_wallets=remove_dust_wallets,
+            remove_inactive_wallets=remove_inactive_wallets,
+            dust_wallet_tx_threshold=dust_wallet_tx_threshold,
+            dust_wallet_value_threshold=dust_wallet_value_threshold,
+            inactive_days_threshold=inactive_days_threshold,
+            min_transaction_value=min_transaction_value
+        )
+
     # Create a NetworkX graph
     G = nx.DiGraph()
 
@@ -309,7 +337,14 @@ def visualize_categorized_transactions_graph(
         filename: Optional[str] = None,
         highlight_address: Optional[str] = None,
         max_nodes: Optional[int] = None,
-        layout_iterations: int = 50
+        layout_iterations: int = 50,
+        optimize_graph: bool = False,
+        remove_dust_wallets: bool = True,
+        remove_inactive_wallets: bool = True,
+        dust_wallet_tx_threshold: int = 5,
+        dust_wallet_value_threshold: float = 100,
+        inactive_days_threshold: int = 60,
+        min_transaction_value: float = 0.1
 ) -> go.Figure:
     """
     Creates an interactive visualization of the transactions graph with categorization data.
@@ -321,10 +356,44 @@ def visualize_categorized_transactions_graph(
         highlight_address: Address to highlight in the visualization
         max_nodes: Maximum number of nodes to include (randomly samples if graph is larger)
         layout_iterations: Number of iterations for the layout algorithm
+        optimize_graph: Whether to optimize the graph by removing dust wallets and inactive wallets
+        remove_dust_wallets: Whether to remove dust wallets during optimization
+        remove_inactive_wallets: Whether to remove inactive wallets during optimization
+        dust_wallet_tx_threshold: Maximum number of transactions for a dust wallet
+        dust_wallet_value_threshold: Maximum USD value for a dust wallet
+        inactive_days_threshold: Number of days without activity to consider a wallet inactive
+        min_transaction_value: Minimum USD value for a transaction to be included
 
     Returns:
         A Plotly Figure object
     """
+    # Apply graph optimization if requested
+    if optimize_graph:
+        log.info("Optimizing graph before visualization")
+        original_node_count = graph.get_number_of_nodes()
+
+        # Optimize the graph
+        graph = optimize_transactions_graph(
+            graph=graph,
+            remove_dust_wallets=remove_dust_wallets,
+            remove_inactive_wallets=remove_inactive_wallets,
+            dust_wallet_tx_threshold=dust_wallet_tx_threshold,
+            dust_wallet_value_threshold=dust_wallet_value_threshold,
+            inactive_days_threshold=inactive_days_threshold,
+            min_transaction_value=min_transaction_value
+        )
+
+        # Filter categorized_nodes to only include nodes that are still in the graph
+        original_categorized_count = len(categorized_nodes)
+        filtered_categorized_nodes = {
+            addr: node for addr, node in categorized_nodes.items() 
+            if addr in graph.nodes
+        }
+        categorized_nodes = filtered_categorized_nodes
+
+        log.info(f"Optimized graph has {graph.get_number_of_nodes()} nodes (removed {original_node_count - graph.get_number_of_nodes()} nodes)")
+        log.info(f"Filtered categorized_nodes from {original_categorized_count} to {len(filtered_categorized_nodes)} entries")
+
     # Create a NetworkX graph
     G = nx.DiGraph()
 

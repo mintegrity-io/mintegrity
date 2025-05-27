@@ -1,4 +1,4 @@
-# MIntegrity - Blockchain Transaction Analysis Framework
+# Mintegrity - Blockchain Transaction Analysis Framework
 
 MIntegrity is a powerful framework for analyzing blockchain transaction data. It enables users to build, visualize, and analyze transaction graphs to gain insights into blockchain networks and identify patterns of behavior.
 
@@ -36,12 +36,18 @@ The `cases\rocketpool` directory contains complete examples demonstrating how to
 ```python
 from scripts.graph.building.transactions_graph_builder import TransactionsGraphBuilder
 from scripts.graph.model.transactions_graph import TransactionsGraph
+from dateutil import parser
+from scripts.commons.model import *
+from scripts.graph.util.transactions_graph_json import save_graph_to_json
+
+FROM_TIME = int(parser.parse("2025-02-25T00:00:00Z").timestamp())
+TO_TIME = int(parser.parse("2025-05-24T00:00:00Z").timestamp())
 
 # Define contracts to analyze
 contracts = {SmartContract(address=Address("0xdd3f50f8a6cafbe9b31a427582963f465e745af8"))}
 
 # Build the graph
-graph = TransactionsGraphBuilder(contracts, FROM_TIME, TO_TIME).build_graph()
+graph: TransactionsGraph = TransactionsGraphBuilder(contracts, FROM_TIME, TO_TIME).build_graph()
 
 # Save the graph
 save_graph_to_json(graph, "output_path.json")
@@ -87,6 +93,7 @@ kmeans_result = cluster_wallets_kmeans(wallet_features, n_clusters=5)
     - **building\\**: Graph building
     - **categorization\\**: Node categorization
     - **model\\**: Data models
+    - **optimization\\**: Graph optimization
     - **visualization\\**: Graph visualization
 - **cases\\**: Example use cases
   - **rocketpool\\**: Rocket Pool analysis examples
