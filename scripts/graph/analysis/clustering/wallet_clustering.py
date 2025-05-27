@@ -446,6 +446,29 @@ def visualize_clusters_2d(clustering_result: ClusteringResult, feature_indices: 
 
         y_pos -= line_height/2  # Extra space between clusters
 
+    # Add diagonal line and explanation for value_vs_max plots (feature indices 0 and 2)
+    if feature_indices == (0, 2):
+        # Get the axis limits
+        x_min, x_max = ax.get_xlim()
+        y_min, y_max = ax.get_ylim()
+
+        # Plot the diagonal line (max_tx_value = total_value)
+        limit = max(x_max, y_max)
+        ax.plot([0, limit], [0, limit], 'r--', linewidth=2, alpha=0.7, label="max_tx_value = total_value")
+
+        # Add annotation explaining the diagonal line
+        ax.annotate(
+            "Diagonal Line: max_tx_value = total_value\n"
+            "- Mathematical constraint: max transaction value cannot exceed total value\n"
+            "- Points on the line: wallets with a single transaction or one dominant transaction\n"
+            "- Points below the line: wallets with multiple transactions of similar values",
+            xy=(0.02, 0.02), xycoords='axes fraction', fontsize=10,
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.8)
+        )
+
+        # Update legend to include the diagonal line
+        ax.legend(fontsize=12)
+
     plt.tight_layout()
     plt.subplots_adjust(right=0.8)  # Make room for annotations
 

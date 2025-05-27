@@ -18,7 +18,7 @@ graph = TransactionsGraph.from_dict(json.load(open(GRAPH_PATH)))
 categorized_nodes: dict[str, CategorizedNode] = categorize_graph(graph)
 
 # Create output directory if it doesn't exist
-output_dir = Path("./files/clustering_results")
+output_dir = Path("./files/clustering")
 output_dir.mkdir(exist_ok=True, parents=True)
 
 # Extract features from wallet nodes
