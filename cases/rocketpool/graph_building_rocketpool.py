@@ -6,10 +6,12 @@ from scripts.graph.building.transactions_graph_builder import TransactionsGraphB
 from scripts.graph.model.transactions_graph import TransactionsGraph
 from scripts.graph.util.transactions_graph_json import save_graph_to_json
 
-FROM_TIME = int(parser.parse("2025-02-25T00:00:00Z").timestamp())
-TO_TIME = int(parser.parse("2025-05-24T00:00:00Z").timestamp())
+days = 360
 
-GRAPH_NAME = "rocket_pool_full_graph_90_days"
+TO_TIME = int(parser.parse("2025-06-01T00:00:00Z").timestamp())
+FROM_TIME = TO_TIME - (days * 24 * 60 * 60)
+
+GRAPH_NAME = f"rocket_pool_full_graph_{days}_days"
 GRAPH_PATH = f"./files/{GRAPH_NAME}.json"
 
 metadata.init()

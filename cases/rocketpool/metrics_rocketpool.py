@@ -1,7 +1,7 @@
 from scripts.graph.analysis.metrics.graph_depth import calculate_graph_depth_metrics, count_nodes_by_distance_from_roots
 from scripts.graph.util.transactions_graph_json import load_graph_from_json
 
-GRAPH_NAME = "rocket_pool_full_graph_90_days"
+GRAPH_NAME = "rocket_pool_full_graph_360_days"
 GRAPH_PATH = f"./files/{GRAPH_NAME}.json"
 graph = load_graph_from_json(GRAPH_PATH)
 

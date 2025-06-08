@@ -42,9 +42,23 @@ def calculate_graph_depth_metrics(graph: TransactionsGraph, root_address: Option
             log.warning(f"Multiple ROOT nodes found in graph, using the first one: {root_nodes[0].address.address}")
         root_node = root_nodes[0]
 
+    # Build an adjacency list representation of the graph (treating it as directed)
+    adjacency_list = defaultdict(set)
+    for edge_key in graph.edges:
+        from_addr, to_addr = edge_key
+        adjacency_list[from_addr].add(to_addr)
+        # Note: We're not adding reverse edges to ensure we follow the natural flow of transactions
+
+    # Make sure all nodes are in the adjacency list, even if they have no edges
+    for node_addr in graph.nodes:
+        if node_addr not in adjacency_list:
+            adjacency_list[node_addr] = set()
+
     # BFS to calculate depths
     depths = {}  # address -> depth
     visited = set()
+
+    # Start with the root node
     queue = deque([(root_node.address.address, 0)])  # (node_address, depth)
 
     while queue:
@@ -56,10 +70,18 @@ def calculate_graph_depth_metrics(graph: TransactionsGraph, root_address: Option
         visited.add(node_address)
         depths[node_address] = depth
 
-        # Find all outgoing edges from this node
-        for edge_key, edge in graph.edges.items():
-            if edge_key[0] == node_address and edge_key[1] not in visited:
-                queue.append((edge_key[1], depth + 1))
+        # Add all outgoing neighbors (treating graph as directed)
+        for neighbor in adjacency_list[node_address]:
+            if neighbor not in visited:
+                queue.append((neighbor, depth + 1))
+
+    # If there are disconnected components, add them with a special depth value
+    # This ensures all nodes are included in the metrics
+    unreachable_nodes = set(graph.nodes.keys()) - visited
+    if unreachable_nodes:
+        log.warning(f"Found {len(unreachable_nodes)} nodes unreachable from the root node")
+        for node_addr in unreachable_nodes:
+            depths[node_addr] = float('inf')  # Mark as unreachable with infinite depth
 
     # Calculate metrics
     if not depths:
@@ -69,8 +91,10 @@ def calculate_graph_depth_metrics(graph: TransactionsGraph, root_address: Option
             'total_nodes_reached': 0
         }
 
-    max_depth = max(depths.values())
-    avg_depth = sum(depths.values()) / len(depths) if depths else 0
+    # Filter out infinite depths for max and avg calculations
+    finite_depths = [d for d in depths.values() if d != float('inf')]
+    max_depth = max(finite_depths) if finite_depths else 0
+    avg_depth = sum(finite_depths) / len(finite_depths) if finite_depths else 0
     total_nodes_reached = len(depths)
 
     return {

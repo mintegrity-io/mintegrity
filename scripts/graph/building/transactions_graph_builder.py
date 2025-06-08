@@ -6,10 +6,10 @@ from scripts.graph.model.transactions_graph import *
 log = get_logger()
 
 # Add a limit to the number of nodes and transactions to avoid excessive memory and API usage
-MAX_NODES_PER_GRAPH = 5000
-MAX_TRANSACTIONS_PER_GRAPH = 10000
-MAX_TRANSACTIONS_NORMAL_NODE = 2000
-MAX_TRANSACTIONS_ROOT_NODE = 10000  # Root nodes can have more transactions due to their central role in the graph
+MAX_NODES_PER_GRAPH = 50000
+MAX_TRANSACTIONS_PER_GRAPH = 1000000
+MAX_TRANSACTIONS_NORMAL_NODE = 15000
+MAX_TRANSACTIONS_ROOT_NODE = 50000  # Root nodes can have more transactions due to their central role in the graph
 
 
 # Track state of address processing
