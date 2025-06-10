@@ -20,16 +20,9 @@ It enables users to build, visualize, and analyze transaction graphs to gain ins
 ## Installation
 
 1. Clone this repository
-2. Create a virtual environment:
-   ```
-   python -m venv venv
-   venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-4. Create a `.env` file with your API keys (if needed)
+2. Create a virtual environment using venv
+3. Install dependencies using requirements.txt
+4. Create a `.env` file with ALCHEMY_API_KEY (or set it as system environment variable)
 
 ## Usage Examples
 
@@ -110,7 +103,6 @@ kmeans_result = cluster_wallets_kmeans(wallet_features, n_clusters=5)
 
 
 ## Project Structure
-
 - **scripts\\**: Core functionality
   - **commons\\**: Common utilities and models
   - **graph\\**: Graph-related functionality
@@ -123,8 +115,11 @@ kmeans_result = cluster_wallets_kmeans(wallet_features, n_clusters=5)
 - **cases\\**: Example use cases
   - **rocketpool\\**: Rocket Pool analysis examples
 
-## Contributing
+## Costs
+> **Note:** Data collection for 1 popular contract for 365 days consumes only 2-3% of the Alchemy free quota, which corresponds to approximately $1 in value. Usage in your use case depends on the number of contract interactions and the time period you analyze.
 
+
+## Contributing
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
