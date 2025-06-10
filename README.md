@@ -1,12 +1,12 @@
 # Mintegrity - blockchain transaction analysis toolkit
 
-
 Most Web3 users juggle multiple wallets across different protocols and services. 
 Our analytics connect these fragmented identities by analyzing on-chain behavior patterns, giving you an insight into your true audience.
 
+Stop guessing what your community wants. With Mintegrity's user analysis, you'll understand who you're serving - and create products that resonate with their actual needs.
+
 ![Graph Group Highlights](docs/images/graph_group_highlights.png)
 
-Stop guessing what your community wants. With Mintegrity's user analysis, you'll understand who you're serving - and create products that resonate with their actual needs.
 
 ## Features
 Mintegrity is a toolkit for analyzing ETH blockchain transaction data, including direct wallet interactions, contract interactions, and interactions among popular tokens.
