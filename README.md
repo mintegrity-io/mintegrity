@@ -7,8 +7,6 @@ Our analytics connect these fragmented identities by analyzing on-chain behavior
 ![Graph Group Highlights](docs/images/graph_group_highlights.png)
 
 Stop guessing what your community wants. With Mintegrity's user analysis, you'll understand who you're serving - and create products that resonate with their actual needs.
-![Group Analysis](docs/images/group_analysis.jpg)
-![Histograms](docs/images/histogramms.jpg)
 
 ## Features
 Mintegrity is a toolkit for analyzing ETH blockchain transaction data, including direct wallet interactions, contract interactions, and interactions among popular tokens.
@@ -80,6 +78,9 @@ visualize_transactions_graph(
 )
 ```
 
+![Group Analysis](docs/images/group_analysis.jpg)
+
+
 ### Clustering Analysis
 
 [clustering_rocketpool.py](cases\rocketpool\clustering_rocketpool.py) demonstrates advanced clustering techniques:
@@ -93,6 +94,8 @@ wallet_features = extract_wallet_features(graph, categorized_nodes)
 # Apply clustering
 kmeans_result = cluster_wallets_kmeans(wallet_features, n_clusters=5)
 ```
+
+![Histograms](docs/images/histogramms.jpg)
 
 ## Project Structure
 
