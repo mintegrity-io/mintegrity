@@ -14,9 +14,7 @@ It enables users to build, visualize, and analyze transaction graphs to gain ins
 
 - **Transaction Graph Building**: Create comprehensive transaction graphs from blockchain data
 - **Graph Visualization**: Generate interactive visualizations of transaction networks
-- **Node Categorization**: Automatically categorize addresses based on their behavior
-- **Wallet Clustering**: Apply machine learning techniques to cluster similar wallets
-- **Metrics Calculation**: Compute various metrics to analyze transaction patterns
+- **Node Categorization**: Automatically categorize addresses based on heuristics
 - **Wallet Grouping**: Group related wallets based on transaction patterns
 
 ## Installation
@@ -78,11 +76,26 @@ visualize_transactions_graph(
 )
 ```
 
-![Group Analysis](docs/images/group_analysis.jpg)
 
+### Wallet Grouping
+
+[wallet_grouping_rocketpool.py](cases\rocketpool\wallet_grouping_rocketpool.py) demonstrates how to group related wallets based on transaction patterns:
+
+```python
+from scripts.graph.analysis.wallet_groups.wallet_grouping import analyze_and_visualize_wallet_groups
+
+# Load a graph
+graph = TransactionsGraph.from_dict(json.load(open(GRAPH_PATH)))
+
+# Group wallets in the graph
+wallet_groups, coordination_scores, group_distances = analyze_and_visualize_wallet_groups(graph, OUTPUT_PATH, COORDINATION_THRESHOLD)
+```
+
+![Graph Group Highlights](docs/images/graph_group_highlights.png)
+![Group Analysis](docs/images/group_analysis.jpg)
+![Histograms](docs/images/histogramms.jpg)
 
 ### Clustering Analysis
-
 [clustering_rocketpool.py](cases\rocketpool\clustering_rocketpool.py) demonstrates advanced clustering techniques:
 
 ```python
@@ -95,7 +108,6 @@ wallet_features = extract_wallet_features(graph, categorized_nodes)
 kmeans_result = cluster_wallets_kmeans(wallet_features, n_clusters=5)
 ```
 
-![Histograms](docs/images/histogramms.jpg)
 
 ## Project Structure
 
