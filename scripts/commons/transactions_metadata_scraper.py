@@ -296,7 +296,7 @@ def get_smart_contracts_by_issuer(wallet_address: Address, network: str = "eth-m
     log.info(f"Found {len(contract_addresses)} smart contracts deployed by {wallet_address.address}")
     log.debug(f"Smart contracts: {contract_addresses}")
 
-    contracts: set[SmartContract] = {SmartContract(address=address) for address in contract_addresses}
+    contracts: set[SmartContract] = {SmartContract(address) for address in contract_addresses}
     return contracts
 
 

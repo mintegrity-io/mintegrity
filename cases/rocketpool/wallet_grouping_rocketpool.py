@@ -10,8 +10,8 @@ from scripts.commons.logging_config import get_logger
 
 log = get_logger()
 
-# Path to graph file (60 days of data for comprehensive analysis)
-GRAPH_NAME = "rocket_pool_full_graph_90_days"
+# Path to graph file (360 days of data for comprehensive analysis)
+GRAPH_NAME = "rocket_pool_full_graph_360_days"
 GRAPH_PATH = f"./files/{GRAPH_NAME}.json"
 
 # Analysis threshold - minimum coordination score to consider wallets related (0-10 scale)

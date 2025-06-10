@@ -140,8 +140,17 @@ def _analyze_timing_patterns(graph: TransactionsGraph,
 
     # For each pair of wallets
     wallet_addresses = list(wallet_metrics.keys())
+    total_pairs = len(wallet_addresses) * (len(wallet_addresses) - 1) // 2
+    processed_pairs = 0
+
     for i, wallet1 in enumerate(wallet_addresses):
         for wallet2 in wallet_addresses[i + 1:]:
+            # Update progress counter
+            processed_pairs += 1
+            if processed_pairs % max(1, total_pairs // 10) == 0 or processed_pairs == total_pairs:
+                progress_percentage = (processed_pairs / total_pairs) * 100
+                log.info(f"Timing pattern analysis: {progress_percentage:.1f}% completed ({processed_pairs}/{total_pairs} wallet pairs)")
+
             # Skip if either wallet has no transactions
             if not wallet_txs[wallet1] or not wallet_txs[wallet2]:
                 continue
@@ -177,8 +186,17 @@ def _analyze_contract_interactions(graph: TransactionsGraph,
 
     # Compare contract interactions between wallets
     wallet_addresses = list(wallet_metrics.keys())
+    total_pairs = len(wallet_addresses) * (len(wallet_addresses) - 1) // 2
+    processed_pairs = 0
+
     for i, wallet1 in enumerate(wallet_addresses):
         for wallet2 in wallet_addresses[i + 1:]:
+            # Update progress counter
+            processed_pairs += 1
+            if processed_pairs % max(1, total_pairs // 10) == 0 or processed_pairs == total_pairs:
+                progress_percentage = (processed_pairs / total_pairs) * 100
+                log.info(f"Contract interaction analysis: {progress_percentage:.1f}% completed ({processed_pairs}/{total_pairs} wallet pairs)")
+
             # Calculate intersection of contracts both wallets interact with
             common_contracts = wallet_contracts[wallet1].intersection(wallet_contracts[wallet2])
 
@@ -265,16 +283,29 @@ def _detect_layer_storage_patterns(graph: TransactionsGraph,
             log.info(f"Identified storage wallet: {wallet_addr}")
 
     # Connect layer and storage wallets that have direct transfers
-    for layer_addr, metrics in wallet_metrics.items():
-        if metrics.is_layer_wallet:
-            for storage_addr in wallet_metrics:
-                if wallet_metrics[storage_addr].is_storage_wallet:
-                    # Check if there are direct transfers between them
-                    if (layer_addr in wallet_metrics[storage_addr].direct_transfers or
-                            storage_addr in metrics.direct_transfers):
-                        # Add connection
-                        metrics.connected_storage_wallets.add(storage_addr)
-                        wallet_metrics[storage_addr].connected_layer_wallets.add(layer_addr)
+    layer_wallets = [addr for addr, metrics in wallet_metrics.items() if metrics.is_layer_wallet]
+    storage_wallets = [addr for addr, metrics in wallet_metrics.items() if metrics.is_storage_wallet]
+
+    total_pairs = len(layer_wallets) * len(storage_wallets)
+    processed_pairs = 0
+
+    log.info(f"Connecting {len(layer_wallets)} layer wallets with {len(storage_wallets)} storage wallets...")
+
+    for layer_addr in layer_wallets:
+        metrics = wallet_metrics[layer_addr]
+        for storage_addr in storage_wallets:
+            # Update progress counter
+            processed_pairs += 1
+            if total_pairs > 0 and (processed_pairs % max(1, total_pairs // 10) == 0 or processed_pairs == total_pairs):
+                progress_percentage = (processed_pairs / total_pairs) * 100
+                log.info(f"Layer-storage connection analysis: {progress_percentage:.1f}% completed ({processed_pairs}/{total_pairs} wallet pairs)")
+
+            # Check if there are direct transfers between them
+            if (layer_addr in wallet_metrics[storage_addr].direct_transfers or
+                    storage_addr in metrics.direct_transfers):
+                # Add connection
+                metrics.connected_storage_wallets.add(storage_addr)
+                wallet_metrics[storage_addr].connected_layer_wallets.add(layer_addr)
 
 
 def _calculate_coordination_scores(wallet_metrics: Dict[str, WalletCoordinationMetrics]) -> Dict[str, Dict[str, float]]:
@@ -285,10 +316,19 @@ def _calculate_coordination_scores(wallet_metrics: Dict[str, WalletCoordinationM
 
     # For each wallet pair
     wallet_addresses = list(wallet_metrics.keys())
+    total_pairs = len(wallet_addresses) * (len(wallet_addresses) - 1) // 2
+    processed_pairs = 0
+
     for i, wallet1 in enumerate(wallet_addresses):
         metrics1 = wallet_metrics[wallet1]
 
         for wallet2 in wallet_addresses[i + 1:]:
+            # Update progress counter
+            processed_pairs += 1
+            if processed_pairs % max(1, total_pairs // 10) == 0 or processed_pairs == total_pairs:
+                progress_percentage = (processed_pairs / total_pairs) * 100
+                log.info(f"Coordination score calculation: {progress_percentage:.1f}% completed ({processed_pairs}/{total_pairs} wallet pairs)")
+
             metrics2 = wallet_metrics[wallet2]
             score = 0.0
 

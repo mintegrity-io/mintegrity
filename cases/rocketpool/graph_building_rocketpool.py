@@ -16,8 +16,8 @@ GRAPH_PATH = f"./files/{GRAPH_NAME}.json"
 
 metadata.init()
 
-contracts: set[SmartContract] = {SmartContract(address=Address("0xdd3f50f8a6cafbe9b31a427582963f465e745af8", AddressType.CONTRACT)),
-                                 SmartContract(address=Address("0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46", AddressType.CONTRACT))}
+contracts: set[SmartContract] = {SmartContract("0xdd3f50f8a6cafbe9b31a427582963f465e745af8"),
+                                 SmartContract("0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46")}
 
 graph: TransactionsGraph = TransactionsGraphBuilder(contracts, FROM_TIME, TO_TIME).build_graph()
 print(f"Graph built with {len(graph.nodes)} nodes and {len(graph.edges)} edges")

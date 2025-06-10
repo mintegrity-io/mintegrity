@@ -58,6 +58,11 @@ class Address:
 class SmartContract:
     address: Address
 
+    def __init__(self, address: str):
+        addr_obj = Address(address=address, type=AddressType.CONTRACT)
+        object.__setattr__(self, 'address', addr_obj)
+        self.__post_init__()
+
     def __post_init__(self):
         if not self.address.type == AddressType.CONTRACT:
             raise ValueError(f"Address {self.address} is not a contract address. Type: {self.address.type.name}")
@@ -70,7 +75,7 @@ class SmartContract:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'SmartContract':
         return cls(
-            address=Address.from_dict(data["address"])
+            address=Address.from_dict(data["address"]).address
         )
 
 

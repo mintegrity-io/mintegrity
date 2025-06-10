@@ -1,8 +1,18 @@
-# Mintegrity - Blockchain Transaction Analysis Framework
+# Mintegrity - blockchain transaction analysis toolkit
 
-MIntegrity is a powerful framework for analyzing blockchain transaction data. It enables users to build, visualize, and analyze transaction graphs to gain insights into blockchain networks and identify patterns of behavior.
+
+Most Web3 users juggle multiple wallets across different protocols and services. 
+Our analytics connect these fragmented identities by analyzing on-chain behavior patterns, giving you an insight into your true audience.
+
+![Graph Group Highlights](docs/images/graph_group_highlights.png)
+
+Stop guessing what your community wants. With Mintegrity's user analysis, you'll understand who you're serving - and create products that resonate with their actual needs.
+![Group Analysis](docs/images/group_analysis.jpg)
+![Histograms](docs/images/histogramms.jpg)
 
 ## Features
+Mintegrity is a toolkit for analyzing ETH blockchain transaction data, including direct wallet interactions, contract interactions, and interactions among popular tokens.
+It enables users to build, visualize, and analyze transaction graphs to gain insights into blockchain networks and identify patterns of behavior.
 
 - **Transaction Graph Building**: Create comprehensive transaction graphs from blockchain data
 - **Graph Visualization**: Generate interactive visualizations of transaction networks
@@ -44,7 +54,7 @@ FROM_TIME = int(parser.parse("2025-02-25T00:00:00Z").timestamp())
 TO_TIME = int(parser.parse("2025-05-24T00:00:00Z").timestamp())
 
 # Define contracts to analyze
-contracts = {SmartContract(address=Address("0xdd3f50f8a6cafbe9b31a427582963f465e745af8"))}
+contracts = {SmartContract("0xdd3f50f8a6cafbe9b31a427582963f465e745af8")}
 
 # Build the graph
 graph: TransactionsGraph = TransactionsGraphBuilder(contracts, FROM_TIME, TO_TIME).build_graph()
