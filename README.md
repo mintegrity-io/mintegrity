@@ -3,7 +3,7 @@
 Most Web3 users juggle multiple wallets across different protocols and services. 
 Our analytics connect these fragmented identities by analyzing on-chain behavior patterns, giving you an insight into your true audience.
 
-Are whales driving most of your volume? Which other protocols do your users frequent? What does your typical user's portfolio look like?
+Are whales driving most of your volume? Which other protocols are popular among your users? What does your typical user's portfolio look like?
 
 Stop guessing what your community wants. With Mintegrity's user analysis, you'll understand who you're serving - and create products that resonate with their actual needs.
 
