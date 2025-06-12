@@ -41,6 +41,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configure matplotlib for headless servers
 import matplotlib
+from dotenv import load_dotenv
+
+from scripts.commons.logging_config import get_logger
 
 matplotlib.use('Agg')  # Use backend without GUI
 import matplotlib.pyplot as plt
@@ -50,7 +53,6 @@ from typing import Dict, List, Set, Optional, Any, Tuple
 from dataclasses import dataclass, asdict, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings
-import logging
 
 try:
     from tqdm import tqdm
@@ -74,49 +76,10 @@ except ImportError:
         def __iter__(self):
             return iter(self.iterable)
 
-# Add path to project root directory
-current_file = Path(__file__).resolve()
-scripts_dir = current_file.parent.parent  # scripts/
-project_root = scripts_dir.parent  # mintegrity/
-sys.path.insert(0, str(project_root))
-
-# Setup logging (FIRST!)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-log = logging.getLogger(__name__)
-
+log = get_logger()
 
 # Load environment variables from .env file
-def load_env_file():
-    """Loads variables from .env file"""
-    env_file = project_root / ".env"
-
-    if env_file.exists():
-        try:
-            # Try using python-dotenv if available
-            try:
-                from dotenv import load_dotenv
-                load_dotenv(env_file)
-                return True
-            except ImportError:
-                # If python-dotenv not installed, read file manually
-                with open(env_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#') and '=' in line:
-                            key, value = line.split('=', 1)
-                            key = key.strip()
-                            value = value.strip().strip('"').strip("'")
-                            os.environ[key] = value
-                return True
-        except Exception as e:
-            log.warning(f"Failed to load .env file: {e}")
-            return False
-
-    return False
-
-
-# Load .env file at startup
-load_env_file()
+load_dotenv()
 
 warnings.filterwarnings('ignore')
 plt.style.use('default')
@@ -558,31 +521,18 @@ class RocketPoolGroupsAnalyzer:
     """Rocket Pool address groups analyzer"""
 
     def __init__(self,
-                 graph_file_path: str = "files/rocket_pool_full_graph_90_days.json",
+                 graph_file_path: str,
                  addresses_file_path: Optional[str] = None,
-                 output_dir: str = "files/rocket_pool_groups_analysis",
+                 output_dir: str = "files/groups_analysis",
                  coordination_threshold: float = 5.0,
                  min_group_size: int = 2,
                  max_workers: int = 5):
 
         # Process paths - if relative, make them relative to project root
-        if not Path(graph_file_path).is_absolute():
-            self.graph_file_path = project_root / graph_file_path
-        else:
-            self.graph_file_path = Path(graph_file_path)
+        self.graph_file_path = Path(graph_file_path)
+        self.output_dir = Path(output_dir)
 
-        if addresses_file_path:
-            if not Path(addresses_file_path).is_absolute():
-                self.addresses_file_path = project_root / addresses_file_path
-            else:
-                self.addresses_file_path = Path(addresses_file_path)
-        else:
-            self.addresses_file_path = None
-
-        if not Path(output_dir).is_absolute():
-            self.output_dir = project_root / output_dir
-        else:
-            self.output_dir = Path(output_dir)
+        self.addresses_file_path = Path(addresses_file_path) if addresses_file_path else None
 
         self.coordination_threshold = coordination_threshold
         self.min_group_size = min_group_size
@@ -1561,8 +1511,7 @@ Note:
             log.error(f"Graph file not found: {analyzer.graph_file_path}")
             log.error("Solutions:")
             log.error("1. Run from mintegrity root: cd /path/to/mintegrity")
-            log.error("2. Use correct relative path: --graph-path ../../files/graph.json")
-            log.error("3. Use absolute path: --graph-path /full/path/to/graph.json")
+            log.error("2. Use correct path: --graph-path ../../files/graph.json")
             return 1
 
         analyzer.run_full_analysis()

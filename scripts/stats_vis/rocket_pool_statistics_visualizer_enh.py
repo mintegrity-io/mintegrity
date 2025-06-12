@@ -21,7 +21,7 @@ plt.style.use('default')
 class EnhancedRocketPoolAnalyzer:
     """Enhanced Rocket Pool address analyzer"""
 
-    def __init__(self, results_file: str, output_dir: str = "../../files/rocket_pool_addresses_vis/"):
+    def __init__(self, results_file: str, output_dir: str = "files/addresses_vis/"):
         self.results_file = Path(results_file)
         self.output_dir = Path(output_dir)
 
