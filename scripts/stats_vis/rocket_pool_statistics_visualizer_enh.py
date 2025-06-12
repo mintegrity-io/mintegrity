@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced Rocket Pool Statistics Analyzer
-Расширенный анализатор адресов Rocket Pool с дополнительными графиками
+Extended Rocket Pool address analyzer with additional charts
 """
 
 import json
@@ -19,13 +19,13 @@ plt.style.use('default')
 
 
 class EnhancedRocketPoolAnalyzer:
-    """Расширенный анализатор адресов Rocket Pool"""
+    """Enhanced Rocket Pool address analyzer"""
     
     def __init__(self, results_file: str, output_dir: str = "../../files/rocket_pool_addresses_vis/"):
         self.results_file = Path(results_file)
         self.output_dir = Path(output_dir)
         
-        # Создаем директории
+        # Create directories
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.output_dir / "plots").mkdir(exist_ok=True)
         
@@ -36,13 +36,13 @@ class EnhancedRocketPoolAnalyzer:
         print(f"📁 Output: {self.output_dir}")
 
     def load_data(self):
-        """Загружает данные из JSON или CSV"""
+        """Loads data from JSON or CSV"""
         print("📖 Loading data...")
         
         if not self.results_file.exists():
             raise FileNotFoundError(f"Results file not found: {self.results_file}")
         
-        # Определяем формат файла и загружаем
+        # Determine file format and load
         if self.results_file.suffix.lower() == '.json':
             with open(self.results_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -55,17 +55,17 @@ class EnhancedRocketPoolAnalyzer:
         print(f"✅ Loaded {len(self.df)} addresses")
         print(f"📋 Columns: {list(self.df.columns)}")
         
-        # Базовая очистка данных
+        # Basic data cleaning
         self.df['address_type'] = self.df['address_type'].fillna('unknown')
         
-        # Заполняем NaN нулями для числовых колонок
+        # Fill NaN with zeros for numeric columns
         numeric_cols = [col for col in self.df.columns if 'volume' in col or 'transactions' in col or 'gas' in col or 'days' in col]
         for col in numeric_cols:
             if col in self.df.columns:
                 self.df[col] = pd.to_numeric(self.df[col], errors='coerce').fillna(0)
 
     def create_volume_bins(self):
-        """Создает bin chart для распределения по объемам"""
+        """Creates bin chart for volume distribution"""
         print("📊 Creating volume distribution bins...")
         
         volume_col = 'total_volume_usd_365d'
@@ -75,7 +75,7 @@ class EnhancedRocketPoolAnalyzer:
         
         volumes = self.df[volume_col].fillna(0)
         
-        # Определяем бины по объемам
+        # Define volume bins
         bins = [
             (0, 1_000, "$0-$1K"),
             (1_000, 10_000, "$1K-$10K"),
@@ -86,12 +86,12 @@ class EnhancedRocketPoolAnalyzer:
         
         bin_counts, bin_labels = self._calculate_bins(volumes, bins)
         
-        # Создаем график
+        # Create chart
         plt.figure(figsize=(12, 8))
         colors = ['#3498db', '#2ecc71', '#f1c40f', '#e67e22', '#e74c3c']
         bars = plt.bar(bin_labels, bin_counts, color=colors, alpha=0.8, edgecolor='black')
         
-        # Добавляем значения на столбцы
+        # Add values on bars
         for bar, count in zip(bars, bin_counts):
             if count > 0:
                 plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(bin_counts) * 0.01,
@@ -111,11 +111,11 @@ class EnhancedRocketPoolAnalyzer:
         plt.savefig(self.output_dir / "plots" / "volume_distribution_bins.png", dpi=300, bbox_inches='tight')
         plt.close()
         
-        # Статистика
+        # Statistics
         self._print_bins_stats("Volume", bin_labels, bin_counts, volumes)
 
     def create_transactions_bins(self):
-        """Создает bin chart для распределения по транзакциям"""
+        """Creates bin chart for transaction distribution"""
         print("📊 Creating transactions distribution bins...")
         
         tx_col = 'total_transactions_365d'
@@ -125,7 +125,7 @@ class EnhancedRocketPoolAnalyzer:
         
         transactions = self.df[tx_col].fillna(0)
         
-        # Определяем бины по транзакциям
+        # Define transaction bins
         bins = [
             (0, 10, "0-10 tx"),
             (10, 50, "10-50 tx"),
@@ -136,12 +136,12 @@ class EnhancedRocketPoolAnalyzer:
         
         bin_counts, bin_labels = self._calculate_bins(transactions, bins)
         
-        # Создаем график
+        # Create chart
         plt.figure(figsize=(12, 8))
         colors = ['#9b59b6', '#3498db', '#2ecc71', '#f39c12', '#e74c3c']
         bars = plt.bar(bin_labels, bin_counts, color=colors, alpha=0.8, edgecolor='black')
         
-        # Добавляем значения на столбцы
+        # Add values on bars
         for bar, count in zip(bars, bin_counts):
             if count > 0:
                 plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(bin_counts) * 0.01,
@@ -161,14 +161,14 @@ class EnhancedRocketPoolAnalyzer:
         plt.savefig(self.output_dir / "plots" / "transactions_distribution_bins.png", dpi=300, bbox_inches='tight')
         plt.close()
         
-        # Статистика
+        # Statistics
         self._print_bins_stats("Transactions", bin_labels, bin_counts, transactions)
 
     def create_address_type_analysis(self):
-        """Создает упрощенный анализ по типам адресов (только 2 графика)"""
+        """Creates simplified address type analysis (only 2 charts)"""
         print("👛 Creating simplified address type analysis...")
         
-        # Подсчет по типам
+        # Count by types
         type_counts = self.df['address_type'].value_counts()
         
         fig, axes = plt.subplots(1, 2, figsize=(15, 6))
@@ -176,14 +176,14 @@ class EnhancedRocketPoolAnalyzer:
         
         colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
         
-        # 1. Распределение по типам
+        # 1. Distribution by types
         axes[0].bar(type_counts.index, type_counts.values, color=colors[:len(type_counts)])
         axes[0].set_title('Address Count by Type', fontweight='bold')
         axes[0].set_ylabel('Count')
         for i, v in enumerate(type_counts.values):
             axes[0].text(i, v + max(type_counts.values) * 0.01, str(v), ha='center', fontweight='bold')
         
-        # 2. Транзакции по типам
+        # 2. Transactions by types
         tx_col = 'total_transactions_365d'
         if tx_col in self.df.columns:
             tx_by_type = self.df.groupby('address_type')[tx_col].sum()
@@ -201,13 +201,13 @@ class EnhancedRocketPoolAnalyzer:
         plt.close()
 
     def create_activity_analysis(self):
-        """Создает анализ активности адресов"""
+        """Creates address activity analysis"""
         print("📈 Creating activity analysis...")
         
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle('Address Activity Analysis', fontsize=16, fontweight='bold')
         
-        # 1. Распределение активных дней
+        # 1. Active days distribution
         if 'active_days_365d' in self.df.columns:
             active_days = self.df['active_days_365d'].fillna(0)
             active_days = active_days[active_days > 0]
@@ -223,12 +223,12 @@ class EnhancedRocketPoolAnalyzer:
         else:
             axes[0, 0].text(0.5, 0.5, 'No active days data', transform=axes[0, 0].transAxes, ha='center', va='center')
         
-        # 2. Средний объем транзакции
+        # 2. Average transaction volume
         if 'average_volume_usd_365d' in self.df.columns:
             avg_volume = self.df['average_volume_usd_365d'].fillna(0)
             avg_volume = avg_volume[avg_volume > 0]
             
-            # Логарифмическая шкала для лучшего отображения
+            # Logarithmic scale for better display
             axes[0, 1].hist(np.log10(avg_volume + 1), bins=30, alpha=0.7, color='#f39c12', edgecolor='black')
             axes[0, 1].set_xlabel('Log10(Average Volume per Transaction + 1)')
             axes[0, 1].set_ylabel('Number of Addresses')
@@ -237,7 +237,7 @@ class EnhancedRocketPoolAnalyzer:
         else:
             axes[0, 1].text(0.5, 0.5, 'No average volume data', transform=axes[0, 1].transAxes, ha='center', va='center')
         
-        # 3. Корреляция Volume vs Active Days
+        # 3. Volume vs Active Days correlation
         volume_col = 'total_volume_usd_365d'
         if volume_col in self.df.columns and 'active_days_365d' in self.df.columns:
             scatter_data = self.df[(self.df[volume_col] > 0) & (self.df['active_days_365d'] > 0)]
@@ -252,7 +252,7 @@ class EnhancedRocketPoolAnalyzer:
                 axes[1, 0].set_yscale('log')
                 axes[1, 0].grid(True, alpha=0.3)
                 
-                # Добавляем легенду
+                # Add legend
                 from matplotlib.lines import Line2D
                 legend_elements = [Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', markersize=8, label='Wallet'),
                                  Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=8, label='Contract')]
@@ -260,7 +260,7 @@ class EnhancedRocketPoolAnalyzer:
         else:
             axes[1, 0].text(0.5, 0.5, 'Insufficient data for correlation', transform=axes[1, 0].transAxes, ha='center', va='center')
         
-        # 4. Frequency analysis (транзакции в день)
+        # 4. Frequency analysis (transactions per day)
         tx_col = 'total_transactions_365d'
         if tx_col in self.df.columns and 'active_days_365d' in self.df.columns:
             freq_data = self.df[(self.df[tx_col] > 0) & (self.df['active_days_365d'] > 0)]
@@ -283,7 +283,7 @@ class EnhancedRocketPoolAnalyzer:
         plt.close()
 
     def create_whale_analysis(self):
-        """Создает анализ 'китов' vs обычных пользователей"""
+        """Creates whale vs regular users analysis"""
         print("🐋 Creating whale analysis...")
         
         volume_col = 'total_volume_usd_365d'
@@ -291,7 +291,7 @@ class EnhancedRocketPoolAnalyzer:
             print("⚠️ No volume data for whale analysis")
             return
         
-        # Определяем порог для "китов" (топ 5% по объему)
+        # Define threshold for "whales" (top 5% by volume)
         volume_threshold = self.df[volume_col].quantile(0.95)
         
         self.df['user_category'] = self.df[volume_col].apply(
@@ -301,7 +301,7 @@ class EnhancedRocketPoolAnalyzer:
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle(f'Whale Analysis (Threshold: ${volume_threshold:,.0f})', fontsize=16, fontweight='bold')
         
-        # 1. Распределение китов vs обычных пользователей
+        # 1. Whales vs regular users distribution
         user_counts = self.df['user_category'].value_counts()
         colors = ['#e74c3c', '#3498db']
         
@@ -309,7 +309,7 @@ class EnhancedRocketPoolAnalyzer:
                                                  colors=colors, autopct='%1.1f%%', startangle=90)
         axes[0, 0].set_title('Distribution: Whales vs Regular Users')
         
-        # 2. Объем по категориям
+        # 2. Volume by category
         volume_by_category = self.df.groupby('user_category')[volume_col].sum()
         axes[0, 1].bar(volume_by_category.index, volume_by_category.values, color=colors)
         axes[0, 1].set_title('Total Volume by User Category')
@@ -320,7 +320,7 @@ class EnhancedRocketPoolAnalyzer:
             axes[0, 1].text(i, v + max(volume_by_category.values) * 0.01, 
                            f'${v:,.0f}', ha='center', fontweight='bold')
         
-        # 3. Транзакции по категориям
+        # 3. Transactions by category
         tx_col = 'total_transactions_365d'
         if tx_col in self.df.columns:
             tx_by_category = self.df.groupby('user_category')[tx_col].sum()
@@ -332,7 +332,7 @@ class EnhancedRocketPoolAnalyzer:
                 axes[1, 0].text(i, v + max(tx_by_category.values) * 0.01, 
                                f'{v:,}', ha='center', fontweight='bold')
         
-        # 4. Средняя активность
+        # 4. Average activity
         if 'active_days_365d' in self.df.columns:
             activity_by_category = self.df.groupby('user_category')['active_days_365d'].mean()
             axes[1, 1].bar(activity_by_category.index, activity_by_category.values, color=colors)
@@ -348,7 +348,7 @@ class EnhancedRocketPoolAnalyzer:
         plt.close()
 
     def create_gas_analysis(self):
-        """Создает анализ газовых расходов"""
+        """Creates gas costs analysis"""
         print("⛽ Creating gas analysis...")
         
         gas_cols = [col for col in self.df.columns if 'gas' in col.lower()]
@@ -360,7 +360,7 @@ class EnhancedRocketPoolAnalyzer:
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle('Gas Usage Analysis', fontsize=16, fontweight='bold')
         
-        # Используем первую найденную газовую колонку
+        # Use first found gas column
         gas_col = gas_cols[0]
         gas_data = self.df[gas_col].fillna(0)
         gas_data = gas_data[gas_data > 0]
@@ -369,14 +369,14 @@ class EnhancedRocketPoolAnalyzer:
             for ax in axes.flat:
                 ax.text(0.5, 0.5, 'No gas data available', transform=ax.transAxes, ha='center', va='center')
         else:
-            # 1. Распределение газовых расходов
+            # 1. Gas costs distribution
             axes[0, 0].hist(gas_data, bins=30, alpha=0.7, color='#e67e22', edgecolor='black')
             axes[0, 0].set_xlabel('Gas Used')
             axes[0, 0].set_ylabel('Number of Addresses')
             axes[0, 0].set_title(f'Distribution of {gas_col}')
             axes[0, 0].grid(True, alpha=0.3)
             
-            # 2. Газ по типам адресов
+            # 2. Gas by address types
             gas_by_type = self.df.groupby('address_type')[gas_col].mean()
             colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
             axes[0, 1].bar(gas_by_type.index, gas_by_type.values, color=colors[:len(gas_by_type)])
@@ -384,7 +384,7 @@ class EnhancedRocketPoolAnalyzer:
             axes[0, 1].set_ylabel('Average Gas')
             axes[0, 1].tick_params(axis='x', rotation=45)
             
-            # 3. Топ газовых потребителей
+            # 3. Top gas consumers
             top_gas = self.df.nlargest(15, gas_col)
             y_pos = np.arange(len(top_gas))
             colors = ['red' if x == 'contract' else 'blue' for x in top_gas['address_type']]
@@ -397,7 +397,7 @@ class EnhancedRocketPoolAnalyzer:
             axes[1, 0].set_title('Top 15 Gas Consumers')
             axes[1, 0].grid(True, alpha=0.3)
             
-            # 4. Корреляция газ vs объем
+            # 4. Gas vs volume correlation
             volume_col = 'total_volume_usd_365d'
             if volume_col in self.df.columns:
                 corr_data = self.df[(self.df[gas_col] > 0) & (self.df[volume_col] > 0)]
@@ -417,7 +417,7 @@ class EnhancedRocketPoolAnalyzer:
         plt.close()
 
     def create_top_performers(self):
-        """Создает анализ топ исполнителей"""
+        """Creates top performers analysis"""
         print("🏆 Creating top performers analysis...")
         
         volume_col = 'total_volume_usd_365d'
@@ -432,7 +432,7 @@ class EnhancedRocketPoolAnalyzer:
         
         n_top = min(15, len(self.df))
         
-        # 1. Топ по объему
+        # 1. Top by volume
         top_volume = self.df.nlargest(n_top, volume_col)
         y_pos = np.arange(len(top_volume))
         colors = ['red' if x == 'contract' else 'blue' for x in top_volume['address_type']]
@@ -445,7 +445,7 @@ class EnhancedRocketPoolAnalyzer:
         axes[0, 0].set_title(f'Top {n_top} by Volume')
         axes[0, 0].grid(True, alpha=0.3)
         
-        # 2. Топ по транзакциям
+        # 2. Top by transactions
         if tx_col in self.df.columns:
             top_tx = self.df.nlargest(n_top, tx_col)
             y_pos = np.arange(len(top_tx))
@@ -471,13 +471,13 @@ class EnhancedRocketPoolAnalyzer:
             axes[1, 0].set_yscale('log')
             axes[1, 0].grid(True, alpha=0.3)
             
-            # Добавляем легенду
+            # Add legend
             from matplotlib.lines import Line2D
             legend_elements = [Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', markersize=8, label='Wallet'),
                              Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=8, label='Contract')]
             axes[1, 0].legend(handles=legend_elements)
         
-        # 4. Эффективность (объем на транзакцию)
+        # 4. Efficiency (volume per transaction)
         if tx_col in self.df.columns:
             efficiency_data = self.df[(self.df[volume_col] > 0) & (self.df[tx_col] > 0)]
             if len(efficiency_data) > 0:
@@ -500,13 +500,13 @@ class EnhancedRocketPoolAnalyzer:
         plt.close()
 
     def create_summary_dashboard(self):
-        """Создает обобщающий дашборд"""
+        """Creates summary dashboard"""
         print("📋 Creating summary dashboard...")
         
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
         fig.suptitle('Rocket Pool Analytics Summary Dashboard', fontsize=18, fontweight='bold')
         
-        # 1. Общая статистика
+        # 1. General statistics
         total_addresses = len(self.df)
         wallets = len(self.df[self.df['address_type'] == 'wallet'])
         contracts = len(self.df[self.df['address_type'] == 'contract'])
@@ -527,7 +527,7 @@ class EnhancedRocketPoolAnalyzer:
             total_transactions = self.df[tx_col].fillna(0).sum()
             avg_tx_per_address = self.df[tx_col].fillna(0).mean()
         
-        # Текстовая сводка
+        # Text summary
         summary_text = f"""
 ROCKET POOL ANALYTICS SUMMARY
 {'='*40}
@@ -551,7 +551,7 @@ ROCKET POOL ANALYTICS SUMMARY
         axes[0, 0].axis('off')
         axes[0, 0].set_title('Key Statistics')
         
-        # 2. Топ объемы (мини версия)
+        # 2. Top volumes (mini version)
         if volume_col in self.df.columns:
             top_5_volume = self.df.nlargest(5, volume_col)
             colors = ['red' if x == 'contract' else 'blue' for x in top_5_volume['address_type']]
@@ -564,14 +564,14 @@ ROCKET POOL ANALYTICS SUMMARY
             axes[0, 1].set_xlabel('Volume (USD)')
             axes[0, 1].ticklabel_format(style='scientific', axis='x', scilimits=(0,0))
         
-        # 3. Распределение типов адресов
+        # 3. Address types distribution
         type_counts = self.df['address_type'].value_counts()
         colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
         wedges, texts, autotexts = axes[0, 2].pie(type_counts.values, labels=type_counts.index, 
                                                  colors=colors[:len(type_counts)], autopct='%1.1f%%')
         axes[0, 2].set_title('Address Types Distribution')
         
-        # 4. Объемы по бинам (упрощенная версия)
+        # 4. Volume bins (simplified version)
         if volume_col in self.df.columns:
             volumes = self.df[volume_col].fillna(0)
             bins = [(0, 1_000), (1_000, 10_000), (10_000, 100_000), (100_000, 1_000_000), (1_000_000, float('inf'))]
@@ -591,7 +591,7 @@ ROCKET POOL ANALYTICS SUMMARY
             axes[1, 0].set_ylabel('Count')
             axes[1, 0].tick_params(axis='x', rotation=45)
         
-        # 5. Активность (если есть данные)
+        # 5. Activity (if data available)
         if 'active_days_365d' in self.df.columns:
             active_days = self.df['active_days_365d'].fillna(0)
             active_days = active_days[active_days > 0]
@@ -603,10 +603,10 @@ ROCKET POOL ANALYTICS SUMMARY
         else:
             axes[1, 1].text(0.5, 0.5, 'No activity data', transform=axes[1, 1].transAxes, ha='center', va='center')
         
-        # 6. Транзакции vs Объем (корреляция)
+        # 6. Transactions vs Volume (correlation)
         if tx_col in self.df.columns and volume_col in self.df.columns:
             scatter_data = self.df[(self.df[volume_col] > 0) & (self.df[tx_col] > 0)]
-            if len(scatter_data) > 100:  # Ограничиваем для читаемости
+            if len(scatter_data) > 100:  # Limit for readability
                 scatter_data = scatter_data.sample(100)
             
             colors = ['red' if x == 'contract' else 'blue' for x in scatter_data['address_type']]
@@ -622,7 +622,7 @@ ROCKET POOL ANALYTICS SUMMARY
         plt.close()
 
     def _calculate_bins(self, data, bins):
-        """Подсчитывает элементы в бинах"""
+        """Calculates elements in bins"""
         bin_counts = []
         bin_labels = []
         
@@ -638,7 +638,7 @@ ROCKET POOL ANALYTICS SUMMARY
         return bin_counts, bin_labels
 
     def _print_bins_stats(self, prefix, bin_labels, bin_counts, data):
-        """Выводит статистику по бинам"""
+        """Prints bin statistics"""
         total = sum(bin_counts)
         print(f"📊 {prefix} distribution:")
         for label, count in zip(bin_labels, bin_counts):
@@ -652,33 +652,33 @@ ROCKET POOL ANALYTICS SUMMARY
         print(f"  Max: {data.max():,.2f}")
 
     def run_full_analysis(self):
-        """Запускает полный расширенный анализ"""
+        """Runs full enhanced analysis"""
         print("🚀 Starting Enhanced Rocket Pool Analytics...")
         print("=" * 60)
         
         try:
-            # 1. Загружаем данные
+            # 1. Load data
             self.load_data()
             
-            # 2. Основные bin charts
+            # 2. Main bin charts
             self.create_volume_bins()
             self.create_transactions_bins()
             
-            # 3. Упрощенный анализ типов адресов
+            # 3. Simplified address type analysis
             self.create_address_type_analysis()
             
-            # 4. Новые расширенные анализы
+            # 4. New enhanced analyses
             self.create_activity_analysis()
             self.create_whale_analysis()
             self.create_gas_analysis()
             
-            # 5. Анализ топ исполнителей
+            # 5. Top performers analysis
             self.create_top_performers()
             
-            # 6. Обобщающий дашборд
+            # 6. Summary dashboard
             self.create_summary_dashboard()
             
-            # 7. Выводим итоговую статистику
+            # 7. Output final statistics
             volume_col = 'total_volume_usd_365d'
             tx_col = 'total_transactions_365d'
             
@@ -721,7 +721,7 @@ ROCKET POOL ANALYTICS SUMMARY
 
 
 def main():
-    """Основная функция с CLI интерфейсом"""
+    """Main function with CLI interface"""
     
     parser = argparse.ArgumentParser(
         description="🚀 Enhanced Rocket Pool Statistics Analyzer",
@@ -757,7 +757,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        # Создаем и запускаем расширенный анализатор
+        # Create and run enhanced analyzer
         analyzer = EnhancedRocketPoolAnalyzer(
             results_file=args.results_file,
             output_dir=args.output_dir
