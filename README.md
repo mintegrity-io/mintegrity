@@ -112,10 +112,7 @@ python scripts/stats_vis/rocket_pool_statistics_visualizer_enh.py results.csv --
     - **optimization\\**: Graph optimization
     - **visualization\\**: Graph visualization
   - **stats_vis\\**: Advanced statistics and visualization tools
-    - **rocket_pool_analyzer.py**: 365-day address analysis with USD pricing
-    - **rocket_pool_groups_analyzer.py**: Coordinated wallet groups detection
-    - **rocket_pool_statistics_visualizer_enh.py**: Comprehensive visualizations
-- **cases\\**: Example use cases
+  - **cases\\**: Example use cases
   - **rocketpool\\**: Rocket Pool analysis examples
 
 ## API Requirements

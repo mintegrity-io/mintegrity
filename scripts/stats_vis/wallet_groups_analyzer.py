@@ -1,33 +1,16 @@
 #!/usr/bin/env python3
 """
-Rocket Pool Groups Analyzer
-Analyzes groups of addresses presumably belonging to the same user,
-with complete statistics for 365 days via API.
+General Wallet Groups Analyzer
+Provides generic functionality for analyzing groups of coordinated addresses
+with complete statistics via APIs.
 
-EXECUTION:
-cd mintegrity
-python scripts/stats_vis/rocket_pool_groups_analyzer.py
-
-Functionality:
-1. Loads existing Rocket Pool graph
-2. Identifies groups of coordinated addresses
-3. Gets complete statistics for each address over 365 days:
-   - Transaction volumes in USD (with historical prices)
-   - Gas fees and average gas prices
-   - Wallet age and creation dates
-   - Activity patterns (days, months)
-   - Interactions with wallets and contracts
-4. Aggregates group statistics and creates comparisons
-5. Creates detailed visualizations and HTML reports
-6. Saves results in JSON and CSV formats
-
-REQUIREMENTS:
-• ETHERSCAN_API_KEY in .env file
-• Internet connection for API requests
-• files/rocket_pool_full_graph_90_days.json
+This module contains:
+1. Data structures for wallet and group statistics
+2. Built-in address analyzer with API functionality
+3. General wallet groups analyzer with visualization capabilities
+4. No blockchain-specific logic
 """
 
-import sys
 import os
 import json
 import csv
@@ -42,8 +25,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Configure matplotlib for headless servers
 import matplotlib
 from dotenv import load_dotenv
-
-from scripts.commons.logging_config import get_logger
 
 matplotlib.use('Agg')  # Use backend without GUI
 import matplotlib.pyplot as plt
@@ -76,27 +57,11 @@ except ImportError:
         def __iter__(self):
             return iter(self.iterable)
 
-log = get_logger()
-
 # Load environment variables from .env file
 load_dotenv()
 
 warnings.filterwarnings('ignore')
 plt.style.use('default')
-
-# Imports from existing project modules
-try:
-    from scripts.graph.util.transactions_graph_json import load_graph_from_json
-    from scripts.graph.analysis.wallet_groups.wallet_grouping import (
-        detect_wallet_coordination,
-        identify_wallet_groups
-    )
-
-    log.info("Successfully imported project modules")
-except ImportError as e:
-    log.error(f"Could not import project modules: {e}")
-    log.error("Make sure you are running from the mintegrity directory and all modules exist")
-    sys.exit(1)
 
 # Try importing additional modules for full analysis
 try:
@@ -105,10 +70,9 @@ try:
     from scripts.commons.known_token_list import ETH_TOKENS_WHITELIST
 
     FULL_ANALYSIS_AVAILABLE = True
-    log.info("✅ Full API analysis modules available")
 except ImportError as e:
-    log.warning(f"⚠️  Some API analysis modules not available: {e}")
-    log.warning("Will use basic graph-based analysis")
+    print(f"⚠️  Some API analysis modules not available: {e}")
+    print("Will use basic graph-based analysis")
     FULL_ANALYSIS_AVAILABLE = False
 
 
@@ -192,7 +156,6 @@ class GroupStatistics:
     error_addresses: List[str] = None
 
 
-# === Built-in address analyzer ===
 class BuiltInAddressAnalyzer:
     """Built-in address analyzer with full API functionality"""
 
@@ -207,9 +170,9 @@ class BuiltInAddressAnalyzer:
                 # Initialize metadata
                 metadata.init()
                 self.current_token_prices = self._fetch_current_prices()
-                log.info(f"Loaded fallback prices for {len(self.current_token_prices)} tokens")
+                print(f"Loaded fallback prices for {len(self.current_token_prices)} tokens")
             except Exception as e:
-                log.warning(f"Failed to initialize pricing: {e}")
+                print(f"Failed to initialize pricing: {e}")
                 FULL_ANALYSIS_AVAILABLE = False
 
     def _fetch_current_prices(self) -> Dict[str, float]:
@@ -225,7 +188,7 @@ class BuiltInAddressAnalyzer:
             return current_prices
 
         except Exception as e:
-            log.warning(f"Failed to fetch current prices via API: {e}")
+            print(f"Failed to fetch current prices via API: {e}")
 
             # Fallback: use prices from metadata
             fallback_prices = {}
@@ -275,7 +238,6 @@ class BuiltInAddressAnalyzer:
                 'granularity': 3600
             }
 
-            import requests
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
 
@@ -295,9 +257,6 @@ class BuiltInAddressAnalyzer:
 
     def get_wallet_statistics_etherscan(self, address: str, address_type: str) -> WalletStatistics:
         """Gets statistics via Etherscan API"""
-        import os
-        import requests
-
         etherscan_api_key = os.getenv("ETHERSCAN_API_KEY")
         if not etherscan_api_key:
             return WalletStatistics(
@@ -507,7 +466,7 @@ class BuiltInAddressAnalyzer:
                         results.append(result)
                     except Exception as e:
                         address = future_to_address[future]
-                        log.warning(f"Failed to analyze {address}: {e}")
+                        print(f"Failed to analyze {address}: {e}")
                         results.append(WalletStatistics(
                             address=address,
                             address_type="unknown",
@@ -517,25 +476,11 @@ class BuiltInAddressAnalyzer:
         return results
 
 
-class RocketPoolGroupsAnalyzer:
-    """Rocket Pool address groups analyzer"""
+class WalletGroupsAnalyzer:
+    """General wallet groups analyzer with visualization capabilities"""
 
-    def __init__(self,
-                 graph_file_path: str,
-                 addresses_file_path: Optional[str] = None,
-                 output_dir: str = "files/groups_analysis",
-                 coordination_threshold: float = 5.0,
-                 min_group_size: int = 2,
-                 max_workers: int = 5):
-
-        # Process paths - if relative, make them relative to project root
-        self.graph_file_path = Path(graph_file_path)
+    def __init__(self, output_dir: str = "files/groups_analysis", max_workers: int = 5):
         self.output_dir = Path(output_dir)
-
-        self.addresses_file_path = Path(addresses_file_path) if addresses_file_path else None
-
-        self.coordination_threshold = coordination_threshold
-        self.min_group_size = min_group_size
         self.max_workers = max_workers
 
         # Create directories
@@ -543,120 +488,32 @@ class RocketPoolGroupsAnalyzer:
         (self.output_dir / "plots").mkdir(exist_ok=True)
         (self.output_dir / "data").mkdir(exist_ok=True)
 
-        self.graph = None
-        self.wallet_groups = []
         self.individual_stats = {}  # Individual address statistics
         self.group_stats = []  # Group statistics
 
-        log.info(f"Initialized Rocket Pool Groups Analyzer")
-        log.info(f"Graph file: {self.graph_file_path}")
-        log.info(f"Output directory: {self.output_dir}")
-        log.info(f"Coordination threshold: {coordination_threshold}")
-        log.info(f"Minimum group size: {min_group_size}")
-
-        # Show available analysis capabilities
-        if FULL_ANALYSIS_AVAILABLE:
-            log.info("🚀 Full API analysis available (365-day detailed statistics via Etherscan + historical prices)")
-        else:
-            log.info("📊 Basic analysis available (graph-based statistics only)")
-
-        if self.addresses_file_path:
-            log.info(f"📁 Will use existing addresses file: {self.addresses_file_path}")
-
-    def load_graph(self):
-        """Loads graph from file"""
-        if not self.graph_file_path.exists():
-            log.error(f"Graph file not found: {self.graph_file_path}")
-            log.error("Please ensure the graph file exists or provide correct path with --graph-path")
-            sys.exit(1)
-
-        log.info(f"Loading graph from {self.graph_file_path}")
-        self.graph = load_graph_from_json(str(self.graph_file_path))
-        log.info(f"Successfully loaded graph with {len(self.graph.nodes)} nodes and {len(self.graph.edges)} edges")
-
-    def detect_wallet_groups(self):
-        """Identifies coordinated address groups"""
-        log.info("Detecting coordinated wallet groups...")
-
-        # Use functionality from wallet_grouping
-        coordination_scores = detect_wallet_coordination(self.graph)
-
-        # Import wallet_metrics from module
-        from scripts.graph.analysis.wallet_groups.wallet_grouping import wallet_metrics
-
-        self.wallet_groups = identify_wallet_groups(
-            coordination_scores,
-            wallet_metrics,
-            threshold=self.coordination_threshold
-        )
-
-        # Filter groups by minimum size
-        self.wallet_groups = [group for group in self.wallet_groups if len(group) >= self.min_group_size]
-
-        log.info(f"Found {len(self.wallet_groups)} groups with {self.min_group_size}+ addresses")
-        for i, group in enumerate(self.wallet_groups):
-            log.info(f"Group {i + 1}: {len(group)} addresses")
-
-    def load_or_analyze_individual_addresses(self):
-        """Loads or analyzes individual address statistics"""
-
-        # Check if there's a ready file with statistics
-        if self.addresses_file_path and self.addresses_file_path.exists():
-            log.info(f"Loading existing addresses analysis from {self.addresses_file_path}")
-
-            with open(self.addresses_file_path, 'r') as f:
-                addresses_data = json.load(f)
-
-            # Convert to dictionary for fast lookup
-            for addr_data in addresses_data:
-                if not addr_data.get('error'):
-                    self.individual_stats[addr_data['address']] = WalletStatistics(**addr_data)
-
-            log.info(f"Loaded statistics for {len(self.individual_stats)} addresses")
-            return
-
-        # If no file, use built-in analyzer for full analysis
-        if FULL_ANALYSIS_AVAILABLE:
-            log.info("No existing addresses file found. Performing full 365-day analysis via APIs...")
-            self._analyze_addresses_with_full_stats()
-        else:
-            log.warning("Full analysis modules not available. Creating simplified statistics from graph data...")
-            self._create_mock_statistics_from_graph()
-
-    def _analyze_addresses_with_full_stats(self):
+    def analyze_addresses_with_full_stats(self, addresses: List[str], graph):
         """Analyzes addresses with full statistics via built-in analyzer"""
-
-        # Collect all addresses from groups
-        all_group_addresses = set()
-        for group in self.wallet_groups:
-            all_group_addresses.update(group)
-
-        if not all_group_addresses:
-            log.warning("No addresses found in groups")
-            return
-
-        log.info(f"Starting full 365-day analysis for {len(all_group_addresses)} addresses from groups...")
-        log.info("This will fetch detailed statistics via Etherscan API with historical prices")
-        log.info("This may take several minutes depending on the number of addresses...")
+        print(f"Starting full 365-day analysis for {len(addresses)} addresses...")
+        print("This will fetch detailed statistics via Etherscan API with historical prices")
+        print("This may take several minutes depending on the number of addresses...")
 
         # Create built-in analyzer
         analyzer = BuiltInAddressAnalyzer(max_workers=self.max_workers)
 
         try:
             # Analyze addresses in batches
-            addresses_list = list(all_group_addresses)
             batch_size = 50
             all_results = []
 
-            for i in range(0, len(addresses_list), batch_size):
-                batch = addresses_list[i:i + batch_size]
-                log.info(f"Processing batch {i // batch_size + 1}/{(len(addresses_list) + batch_size - 1) // batch_size}")
+            for i in range(0, len(addresses), batch_size):
+                batch = addresses[i:i + batch_size]
+                print(f"Processing batch {i // batch_size + 1}/{(len(addresses) + batch_size - 1) // batch_size}")
 
-                batch_results = analyzer.analyze_addresses_batch(batch, self.graph)
+                batch_results = analyzer.analyze_addresses_batch(batch, graph)
                 all_results.extend(batch_results)
 
                 # Pause between batches
-                if i + batch_size < len(addresses_list):
+                if i + batch_size < len(addresses):
                     time.sleep(1)
 
             # Convert results
@@ -664,7 +521,7 @@ class RocketPoolGroupsAnalyzer:
                 if not result.error:
                     self.individual_stats[result.address] = result
                 else:
-                    log.warning(f"Failed to analyze {result.address}: {result.error}")
+                    print(f"Failed to analyze {result.address}: {result.error}")
 
             # Save detailed results
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -675,27 +532,23 @@ class RocketPoolGroupsAnalyzer:
                 json.dump(json_data, f, indent=2, ensure_ascii=False)
 
             success_count = len([r for r in all_results if not r.error])
-            log.info(f"Completed detailed analysis: {success_count}/{len(all_results)} addresses successfully analyzed")
-            log.info(f"Detailed results saved to: {detailed_file}")
+            print(f"Completed detailed analysis: {success_count}/{len(all_results)} addresses successfully analyzed")
+            print(f"Detailed results saved to: {detailed_file}")
 
         except Exception as e:
-            log.error(f"Failed to perform detailed analysis: {e}")
-            log.warning("Falling back to simplified graph-based statistics...")
-            self._create_mock_statistics_from_graph()
+            print(f"Failed to perform detailed analysis: {e}")
+            print("Falling back to simplified graph-based statistics...")
+            self.create_mock_statistics_from_graph(addresses, graph)
 
-    def _create_mock_statistics_from_graph(self):
+    def create_mock_statistics_from_graph(self, addresses: List[str], graph):
         """Creates simplified statistics from graph data"""
-        all_group_addresses = set()
-        for group in self.wallet_groups:
-            all_group_addresses.update(group)
-
-        for address in all_group_addresses:
+        for address in addresses:
             # Simple counting from graph
             total_transactions = 0
             total_volume = 0.0
 
             # Count outgoing transactions
-            for (from_addr, to_addr), edge in self.graph.edges.items():
+            for (from_addr, to_addr), edge in graph.edges.items():
                 if from_addr == address:
                     total_transactions += len(edge.transactions)
                     for tx in edge.transactions.values():
@@ -703,8 +556,8 @@ class RocketPoolGroupsAnalyzer:
 
             # Determine address type
             address_type = "wallet"
-            if address in self.graph.nodes:
-                node = self.graph.nodes[address]
+            if address in graph.nodes:
+                node = graph.nodes[address]
                 # Check node type
                 if hasattr(node, 'type'):
                     if hasattr(node.type, 'name'):
@@ -726,16 +579,16 @@ class RocketPoolGroupsAnalyzer:
                 unique_addresses_interacted_365d=None
             )
 
-        log.info(f"Created mock statistics for {len(self.individual_stats)} addresses")
+        print(f"Created mock statistics for {len(self.individual_stats)} addresses")
 
-    def calculate_group_statistics(self):
+    def calculate_group_statistics(self, wallet_groups: List[List[str]], graph):
         """Calculates aggregated statistics for each group"""
-        log.info("Calculating group statistics...")
+        print("Calculating group statistics...")
 
         self.group_stats = []
 
-        for group_id, group_addresses in enumerate(self.wallet_groups, 1):
-            log.info(f"Processing group {group_id} with {len(group_addresses)} addresses")
+        for group_id, group_addresses in enumerate(wallet_groups, 1):
+            print(f"Processing group {group_id} with {len(group_addresses)} addresses")
 
             # Filter addresses that have statistics
             valid_addresses = []
@@ -748,20 +601,20 @@ class RocketPoolGroupsAnalyzer:
                     error_addresses.append(addr)
 
             if not valid_addresses:
-                log.warning(f"No valid statistics for group {group_id}")
+                print(f"No valid statistics for group {group_id}")
                 continue
 
             # Aggregate statistics
             group_stat = self._aggregate_group_statistics(
-                group_id, list(group_addresses), valid_addresses, error_addresses
+                group_id, list(group_addresses), valid_addresses, error_addresses, graph
             )
 
             self.group_stats.append(group_stat)
 
-        log.info(f"Calculated statistics for {len(self.group_stats)} groups")
+        print(f"Calculated statistics for {len(self.group_stats)} groups")
 
     def _aggregate_group_statistics(self, group_id: int, all_addresses: List[str],
-                                    valid_addresses: List[str], error_addresses: List[str]) -> GroupStatistics:
+                                    valid_addresses: List[str], error_addresses: List[str], graph) -> GroupStatistics:
         """Aggregates statistics for one group"""
 
         # Get statistics for valid addresses
@@ -808,7 +661,7 @@ class RocketPoolGroupsAnalyzer:
         avg_gas_fees = total_gas_fees / len(valid_addresses) if valid_addresses else 0
 
         # Internal transfers
-        internal_transfers = self._count_internal_transfers(valid_addresses)
+        internal_transfers = self._count_internal_transfers(valid_addresses, graph)
 
         # External interactions
         external_addresses = set()
@@ -842,13 +695,13 @@ class RocketPoolGroupsAnalyzer:
             error_addresses=error_addresses
         )
 
-    def _count_internal_transfers(self, addresses: List[str]) -> int:
+    def _count_internal_transfers(self, addresses: List[str], graph) -> int:
         """Counts number of transfers within group"""
         internal_count = 0
         address_set = set(addresses)
 
         # Analyze graph edges
-        for (from_addr, to_addr), edge in self.graph.edges.items():
+        for (from_addr, to_addr), edge in graph.edges.items():
             if from_addr in address_set and to_addr in address_set:
                 internal_count += len(edge.transactions)
 
@@ -856,10 +709,10 @@ class RocketPoolGroupsAnalyzer:
 
     def create_group_volume_distribution(self):
         """Creates group volume distribution"""
-        log.info("Creating group volume distribution...")
+        print("Creating group volume distribution...")
 
         if not self.group_stats:
-            log.warning("No group statistics available")
+            print("No group statistics available")
             return
 
         volumes = [group.total_volume_usd_365d for group in self.group_stats]
@@ -902,7 +755,7 @@ class RocketPoolGroupsAnalyzer:
 
     def create_group_size_analysis(self):
         """Creates group size analysis"""
-        log.info("Creating group size analysis...")
+        print("Creating group size analysis...")
 
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
         fig.suptitle('Group Size Analysis', fontsize=16, fontweight='bold')
@@ -957,7 +810,7 @@ class RocketPoolGroupsAnalyzer:
 
     def create_top_groups_analysis(self):
         """Creates top groups analysis"""
-        log.info("Creating top groups analysis...")
+        print("Creating top groups analysis...")
 
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle('Top Groups Analysis', fontsize=16, fontweight='bold')
@@ -1024,13 +877,13 @@ class RocketPoolGroupsAnalyzer:
         plt.savefig(self.output_dir / "plots" / "top_groups_analysis.png", dpi=300, bbox_inches='tight')
         plt.close()
 
-    def create_groups_vs_individuals_comparison(self):
+    def create_groups_vs_individuals_comparison(self, wallet_groups: List[List[str]]):
         """Creates groups vs individual addresses comparison"""
-        log.info("Creating groups vs individuals comparison...")
+        print("Creating groups vs individuals comparison...")
 
         # Get addresses that are NOT in groups
         all_group_addresses = set()
-        for group in self.wallet_groups:
+        for group in wallet_groups:
             all_group_addresses.update(group)
 
         individual_addresses = []
@@ -1039,7 +892,7 @@ class RocketPoolGroupsAnalyzer:
                 individual_addresses.append(stats)
 
         if not individual_addresses:
-            log.warning("No individual addresses found for comparison")
+            print("No individual addresses found for comparison")
             return
 
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
@@ -1124,10 +977,10 @@ class RocketPoolGroupsAnalyzer:
 
     def create_transaction_volume_bins_for_all_groups(self):
         """Creates bin plot by total transaction volume for ALL groups"""
-        log.info("Creating transaction volume bins for all groups...")
+        print("Creating transaction volume bins for all groups...")
 
         if not self.group_stats:
-            log.warning("No group statistics available")
+            print("No group statistics available")
             return
 
         # Get transaction volume data for all groups
@@ -1202,24 +1055,24 @@ class RocketPoolGroupsAnalyzer:
     def _print_bins_stats(self, prefix, bin_labels, bin_counts, data):
         """Prints bin statistics"""
         total = sum(bin_counts)
-        log.info(f"📊 {prefix} distribution:")
+        print(f"📊 {prefix} distribution:")
         for label, count in zip(bin_labels, bin_counts):
             percentage = (count / total * 100) if total > 0 else 0
-            log.info(f"  {label}: {count} groups ({percentage:.1f}%)")
+            print(f"  {label}: {count} groups ({percentage:.1f}%)")
 
-        log.info(f"📈 {prefix} statistics:")
-        log.info(f"  Total: {data.sum():,.0f}")
-        log.info(f"  Average: {data.mean():,.0f}")
-        log.info(f"  Median: {np.median(data):,.0f}")
-        log.info(f"  Max: {data.max():,.0f}")
-        log.info(f"  Min: {data.min():,.0f}")
+        print(f"📈 {prefix} statistics:")
+        print(f"  Total: {data.sum():,.0f}")
+        print(f"  Average: {data.mean():,.0f}")
+        print(f"  Median: {np.median(data):,.0f}")
+        print(f"  Max: {data.max():,.0f}")
+        print(f"  Min: {data.min():,.0f}")
 
     def generate_groups_report(self):
-        """Generates basic group statistics (without HTML report)"""
-        log.info("Generating groups statistics summary...")
+        """Generates basic group statistics summary"""
+        print("Generating groups statistics summary...")
 
         if not self.group_stats:
-            log.warning("No group statistics for report")
+            print("No group statistics for report")
             return {}
 
         df_groups = pd.DataFrame([asdict(group) for group in self.group_stats])
@@ -1249,118 +1102,38 @@ class RocketPoolGroupsAnalyzer:
             'highest_volume_group_id': highest_volume_group_id
         }
 
-        # Output statistics to log instead of HTML
-        log.info("=" * 50)
-        log.info("📊 GROUPS ANALYSIS SUMMARY")
-        log.info("=" * 50)
-        log.info(f"Total Groups: {stats['total_groups']}")
-        log.info(f"Total Addresses in Groups: {stats['total_addresses_in_groups']}")
-        log.info(f"Average Group Size: {stats['avg_group_size']:.1f}")
-        log.info(f"Largest Group Size: {stats['largest_group_size']}")
-        log.info(f"Total Volume: ${stats['total_volume']:,.0f}")
-        log.info(f"Average Volume per Group: ${stats['avg_volume_per_group']:,.0f}")
-        log.info(f"Total Transactions: {stats['total_transactions']:,.0f}")
-        log.info(f"Most Active Group: {stats['most_active_group_id']}")
-        log.info(f"Highest Volume Group: {stats['highest_volume_group_id']}")
-        log.info("=" * 50)
+        # Output statistics to log
+        print("=" * 50)
+        print("📊 GROUPS ANALYSIS SUMMARY")
+        print("=" * 50)
+        print(f"Total Groups: {stats['total_groups']}")
+        print(f"Total Addresses in Groups: {stats['total_addresses_in_groups']}")
+        print(f"Average Group Size: {stats['avg_group_size']:.1f}")
+        print(f"Largest Group Size: {stats['largest_group_size']}")
+        print(f"Total Volume: ${stats['total_volume']:,.0f}")
+        print(f"Average Volume per Group: ${stats['avg_volume_per_group']:,.0f}")
+        print(f"Total Transactions: {stats['total_transactions']:,.0f}")
+        print(f"Most Active Group: {stats['most_active_group_id']}")
+        print(f"Highest Volume Group: {stats['highest_volume_group_id']}")
+        print("=" * 50)
 
         # Top 5 groups in log
-        log.info("🏆 TOP 5 GROUPS BY VOLUME:")
+        print("🏆 TOP 5 GROUPS BY VOLUME:")
         top_5_groups = df_groups.nlargest(5, 'total_volume_usd_365d')
         for i, (_, group) in enumerate(top_5_groups.iterrows(), 1):
-            log.info(f"{i}. Group {group['group_id']} - {group['group_size']} addresses")
-            log.info(f"   Volume: ${group['total_volume_usd_365d']:,.0f} | Transactions: {group['total_transactions_365d']:,}")
+            print(f"{i}. Group {group['group_id']} - {group['group_size']} addresses")
+            print(f"   Volume: ${group['total_volume_usd_365d']:,.0f} | Transactions: {group['total_transactions_365d']:,}")
 
-        log.info("=" * 50)
+        print("=" * 50)
 
         return stats
-
-    def run_full_analysis(self):
-        """Runs full group analysis"""
-        log.info("=" * 60)
-        log.info("ROCKET POOL GROUPS ANALYSIS STARTED")
-        log.info("=" * 60)
-
-        # Show information about analysis type
-        if FULL_ANALYSIS_AVAILABLE and not (self.addresses_file_path and self.addresses_file_path.exists()):
-            log.info("🚀 FULL ANALYSIS MODE:")
-            log.info("   • Will fetch 365-day detailed statistics via APIs")
-            log.info("   • Uses Etherscan API for transaction history")
-            log.info("   • Uses Coinbase API for historical token prices")
-            log.info("   • Includes gas fees, wallet age, activity patterns")
-            log.info("")
-
-            # Check API key
-            etherscan_api_key = os.getenv("ETHERSCAN_API_KEY")
-            if etherscan_api_key:
-                masked_key = etherscan_api_key[:8] + "..." + etherscan_api_key[-4:] if len(etherscan_api_key) > 12 else "***"
-                log.info(f"✅ ETHERSCAN_API_KEY found: {masked_key}")
-            else:
-                log.warning("⚠️  ETHERSCAN_API_KEY not set")
-                log.warning("   Will use basic graph-based analysis instead")
-                log.warning("   Add ETHERSCAN_API_KEY=your_key to .env file for full functionality")
-            log.info("")
-
-        try:
-            # 1. Load graph
-            self.load_graph()
-
-            # 2. Identify address groups
-            self.detect_wallet_groups()
-
-            if not self.wallet_groups:
-                log.error("No wallet groups found")
-                return
-
-            # 3. Load or analyze individual address statistics
-            self.load_or_analyze_individual_addresses()
-
-            # 4. Calculate group statistics
-            self.calculate_group_statistics()
-
-            if not self.group_stats:
-                log.error("No group statistics calculated")
-                return
-
-            # 5. Create visualizations
-            log.info("Creating static PNG visualizations...")
-            self.create_transaction_volume_bins_for_all_groups()  # NEW: bin plot by transactions
-            self.create_group_volume_distribution()
-            self.create_group_size_analysis()
-            self.create_top_groups_analysis()
-            self.create_groups_vs_individuals_comparison()
-
-            # 6. Save data to JSON/CSV
-            json_file, csv_file = self.save_groups_data()
-
-            # 7. Generate report
-            stats = self.generate_groups_report()
-
-            log.info("=" * 60)
-            log.info("GROUPS ANALYSIS COMPLETED SUCCESSFULLY")
-            log.info("=" * 60)
-            log.info(f"📊 {stats['total_groups']} groups analyzed")
-            log.info(f"👥 {stats['total_addresses_in_groups']} addresses in groups")
-            log.info(f"💰 ${stats['total_volume']:,.0f} total volume")
-            log.info(f"🔄 {stats['total_transactions']:,.0f} total transactions")
-            log.info(f"📁 Charts saved to: {self.output_dir}/plots/")
-            log.info(f"📁 Data saved to: {json_file} and {csv_file}")
-            log.info("📈 NEW: Transaction volume bins chart created")
-            log.info("📈 Generated 5 PNG charts (no HTML reports)")
-            log.info("=" * 60)
-
-        except Exception as e:
-            log.error(f"Groups analysis failed: {e}")
-            import traceback
-            log.error(traceback.format_exc())
-            raise
 
     def save_groups_data(self):
         """Saves group data to JSON and CSV"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # Determine prefix based on analysis type
-        if FULL_ANALYSIS_AVAILABLE and not (self.addresses_file_path and self.addresses_file_path.exists()):
+        if FULL_ANALYSIS_AVAILABLE:
             prefix = "groups_full_analysis_365d"
         else:
             prefix = "groups_analysis"
@@ -1380,7 +1153,7 @@ class RocketPoolGroupsAnalyzer:
                 for group in self.group_stats:
                     writer.writerow(asdict(group))
 
-        log.info(f"Groups data saved to: {json_file} and {csv_file}")
+        print(f"Groups data saved to: {json_file} and {csv_file}")
         return json_file, csv_file
 
     def _calculate_bins(self, data, bins):
@@ -1398,134 +1171,3 @@ class RocketPoolGroupsAnalyzer:
             bin_labels.append(label)
 
         return bin_counts, bin_labels
-
-
-def main():
-    """Main function"""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Rocket Pool Groups Analyzer - analyzes coordinated groups of addresses with FULL 365-day API statistics",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-🚀 FULL ANALYSIS FEATURES:
-• Detects coordinated wallet groups using advanced algorithms
-• Fetches 365-day detailed statistics via Etherscan API  
-• Uses historical token prices from Coinbase API
-• Includes gas fees, wallet age, activity patterns
-• Creates comprehensive visualizations and reports
-
-📋 REQUIREMENTS & SETUP:
-• ETHERSCAN_API_KEY for full functionality
-• Internet connection for API calls
-• Run from mintegrity project root directory
-
-🔑 API KEY SETUP (choose one method):
-Method 1 - .env file (recommended):
-  echo "ETHERSCAN_API_KEY=your_api_key_here" >> .env
-  
-Method 2 - Environment variable:
-  export ETHERSCAN_API_KEY="your_api_key_here"
-  
-Method 3 - Terminal session:
-  ETHERSCAN_API_KEY="your_api_key" python scripts/stats_vis/rocket_pool_groups_analyzer.py
-
-Get free API key: https://etherscan.io/apis
-
-🚀 EXAMPLES:
-From mintegrity root (recommended):
-  cd mintegrity && python scripts/stats_vis/rocket_pool_groups_analyzer.py
-  cd mintegrity && python scripts/stats_vis/rocket_pool_groups_analyzer.py --threshold 6.0
-
-From scripts/stats_vis/ directory:
-  python rocket_pool_groups_analyzer.py --graph-path ../../files/rocket_pool_full_graph_90_days.json
-  python rocket_pool_groups_analyzer.py --graph-path ../../files/custom_graph.json --threshold 3.0
-
-With custom settings:
-  python scripts/stats_vis/rocket_pool_groups_analyzer.py --min-group-size 3 --max-workers 10
-  python scripts/stats_vis/rocket_pool_groups_analyzer.py --addresses-file files/existing_analysis.json
-
-Note: 
-- Script automatically detects correct paths
-- Without API key: basic analysis using graph data only
-- With API key: full 365-day analysis with USD values, gas fees, etc.
-- Script automatically loads .env file from project root
-        """
-    )
-
-    parser.add_argument(
-        "--graph-path",
-        default="files/rocket_pool_full_graph_90_days.json",
-        help="Path to graph file (default: files/rocket_pool_full_graph_90_days.json)"
-    )
-
-    parser.add_argument(
-        "--addresses-file",
-        help="Path to existing addresses analysis JSON file (optional)"
-    )
-
-    parser.add_argument(
-        "--output-dir",
-        default="files/rocket_pool_groups_analysis",
-        help="Output directory (default: files/rocket_pool_groups_analysis)"
-    )
-
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=5.0,
-        help="Coordination threshold for grouping (default: 5.0)"
-    )
-
-    parser.add_argument(
-        "--min-group-size",
-        type=int,
-        default=2,
-        help="Minimum group size (default: 2)"
-    )
-
-    parser.add_argument(
-        "--max-workers",
-        type=int,
-        default=5,
-        help="Maximum concurrent API requests (default: 5)"
-    )
-
-    args = parser.parse_args()
-
-    # Show where we're working
-    log.info(f"Working directory: {Path.cwd()}")
-
-    try:
-        analyzer = RocketPoolGroupsAnalyzer(
-            graph_file_path=args.graph_path,
-            addresses_file_path=args.addresses_file,
-            output_dir=args.output_dir,
-            coordination_threshold=args.threshold,
-            min_group_size=args.min_group_size,
-            max_workers=args.max_workers
-        )
-
-        # Check that graph exists after initialization
-        if not analyzer.graph_file_path.exists():
-            log.error(f"Graph file not found: {analyzer.graph_file_path}")
-            log.error("Solutions:")
-            log.error("1. Run from mintegrity root: cd /path/to/mintegrity")
-            log.error("2. Use correct path: --graph-path ../../files/graph.json")
-            return 1
-
-        analyzer.run_full_analysis()
-
-    except KeyboardInterrupt:
-        log.info("Analysis interrupted by user")
-        return 1
-    except Exception as e:
-        log.error(f"Analysis failed: {e}")
-        log.error("If you're getting import errors, make sure you're running from the mintegrity project root")
-        return 1
-
-    return 0
-
-
-if __name__ == "__main__":
-    exit(main())

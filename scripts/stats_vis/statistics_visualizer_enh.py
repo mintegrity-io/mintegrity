@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Enhanced Rocket Pool Statistics Analyzer
-Extended Rocket Pool address analyzer with additional charts
+Enhanced Statistics Analyzer
+Processes data collected by mintegrity/cases/rocketpool/rocketpool_data_fetcher.py
+and creates comprehensive visualizations and analysis charts.
+
+Location: mintegrity/scripts/stats_vis/
+Data Source: mintegrity/files/
+Data Fetcher: mintegrity/cases/rocketpool/rocketpool_data_fetcher.py
 """
 
 import json
@@ -10,8 +15,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime
-import argparse
-import sys
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -19,11 +22,12 @@ plt.style.use('default')
 
 
 class EnhancedRocketPoolAnalyzer:
-    """Enhanced Rocket Pool address analyzer"""
+    """Enhanced Rocket Pool address analyzer for data visualization"""
 
-    def __init__(self, results_file: str, output_dir: str = "files/addresses_vis/"):
-        self.results_file = Path(results_file)
-        self.output_dir = Path(output_dir)
+    def __init__(self):
+        # Hardcoded paths relative to mintegrity/scripts/stats_vis/
+        self.results_file = Path("../../files/rocket_pool_analysis/rocket_pool_addresses_20250604_214437.json")
+        self.output_dir = Path("../../files/addresses_vis/")
 
         # Create directories
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -40,7 +44,26 @@ class EnhancedRocketPoolAnalyzer:
         print("📖 Loading data...")
 
         if not self.results_file.exists():
-            raise FileNotFoundError(f"Results file not found: {self.results_file}")
+            # Try alternative file names/locations
+            alternative_files = [
+                Path("../../files/rocket_pool_analysis/rocket_pool_results.csv"),
+                Path("../../files/rocket_pool_analysis/rocketpool_results.json"),
+                Path("../../files/rocket_pool_analysis/rocketpool_results.csv"),
+                Path("../../files/rocket_pool_analysis/rocket_pool_data.json"),
+                Path("../../files/rocket_pool_analysis/rocket_pool_data.csv")
+            ]
+            
+            found_file = None
+            for alt_file in alternative_files:
+                if alt_file.exists():
+                    found_file = alt_file
+                    break
+            
+            if found_file:
+                self.results_file = found_file
+                print(f"📄 Using alternative file: {self.results_file}")
+            else:
+                raise FileNotFoundError(f"Results file not found: {self.results_file}\nTried alternatives: {[str(f) for f in alternative_files]}")
 
         # Determine file format and load
         if self.results_file.suffix.lower() == '.json':
@@ -707,12 +730,12 @@ ROCKET POOL ANALYTICS SUMMARY
             print("\n🎨 Generated visualizations:")
             print("  • volume_distribution_bins.png")
             print("  • transactions_distribution_bins.png")
-            print("  • address_type_analysis.png (simplified)")
-            print("  • activity_analysis.png (NEW)")
-            print("  • whale_analysis.png (NEW)")
-            print("  • gas_analysis.png (NEW)")
+            print("  • address_type_analysis.png")
+            print("  • activity_analysis.png")
+            print("  • whale_analysis.png")
+            print("  • gas_analysis.png")
             print("  • top_performers.png")
-            print("  • summary_dashboard.png (NEW)")
+            print("  • summary_dashboard.png")
             print("=" * 60)
 
         except Exception as e:
@@ -721,50 +744,11 @@ ROCKET POOL ANALYTICS SUMMARY
 
 
 def main():
-    """Main function with CLI interface"""
-
-    parser = argparse.ArgumentParser(
-        description="🚀 Enhanced Rocket Pool Statistics Analyzer",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-🎯 Examples:
-  python enhanced_rocket_pool_analyzer.py results.json
-  python enhanced_rocket_pool_analyzer.py data.csv --output-dir ./my_analysis
-
-📊 Output:
-  - 8 comprehensive PNG visualizations in output_dir/plots/
-
-🧩 New Features:
-  - Activity Analysis (active days, frequency, correlations)
-  - Whale Analysis (top 5% vs regular users)
-  - Gas Usage Analysis
-  - Summary Dashboard
-  - Enhanced Top Performers with efficiency metrics
-        """
-    )
-
-    parser.add_argument(
-        "results_file",
-        help="📄 Path to JSON or CSV results file from rocket_pool_analyzer.py"
-    )
-
-    parser.add_argument(
-        "--output-dir",
-        default="../../files/rocket_pool_addresses_vis/",
-        help="📁 Output directory for visualizations and reports"
-    )
-
-    args = parser.parse_args()
-
+    """Main function - runs analysis with hardcoded paths"""
     try:
         # Create and run enhanced analyzer
-        analyzer = EnhancedRocketPoolAnalyzer(
-            results_file=args.results_file,
-            output_dir=args.output_dir
-        )
-
+        analyzer = EnhancedRocketPoolAnalyzer()
         analyzer.run_full_analysis()
-
         return 0
 
     except KeyboardInterrupt:
