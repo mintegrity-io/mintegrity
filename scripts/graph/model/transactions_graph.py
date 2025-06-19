@@ -27,6 +27,7 @@ class Node:
             type=NodeType(data["type"])
         )
 
+
 @dataclass
 class Edge:
     from_node: Node

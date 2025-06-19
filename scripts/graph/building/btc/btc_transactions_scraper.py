@@ -223,6 +223,9 @@ def get_address_transactions(address: str, from_block: str, to_block: str, netwo
                 if block_height < from_block_int or block_height > to_block_int:
                     continue
 
+                # Get the block timestamp as a string
+                block_timestamp = str(tx_details['status'].get('block_time', 0))
+
                 # In Bitcoin's UTXO model, we need to check if our address is primarily an input or output
                 # A transaction is outgoing if our address is in inputs (we're spending)
                 # A transaction is incoming if our address is only in outputs (we're receiving)
@@ -238,7 +241,7 @@ def get_address_transactions(address: str, from_block: str, to_block: str, netwo
                 formatted_tx = {
                     'hash': tx_details['txid'],
                     'metadata': {
-                        'blockTimestamp': tx_details['status'].get('block_time', 0),
+                        'blockTimestamp': block_timestamp,
                         'blockHeight': block_height
                     }
                 }
@@ -354,7 +357,7 @@ def get_address_interactions(
             address_from=Address(tx["from"], AddressType.WALLET),
             address_to=Address(tx["to"], AddressType.WALLET),
             value=satoshi_to_btc(tx["value"]),
-            timestamp=str(tx["metadata"]["blockTimestamp"]),
+            timestamp=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(int(tx["metadata"]["blockTimestamp"]))),
             token_symbol=BTC_TOKEN_SYMBOL
         )
 
@@ -379,7 +382,7 @@ def get_address_interactions(
             address_from=Address(tx["from"], AddressType.WALLET),
             address_to=Address(tx["to"], AddressType.WALLET),
             value=satoshi_to_btc(tx["value"]),
-            timestamp=str(tx["metadata"]["blockTimestamp"]),
+            timestamp=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(int(tx["metadata"]["blockTimestamp"]))),
             token_symbol=BTC_TOKEN_SYMBOL
         )
 
