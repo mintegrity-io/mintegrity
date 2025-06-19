@@ -4,13 +4,13 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from scripts.commons import metadata
+from scripts.commons import prices
 from scripts.graph.analysis.clustering.wallet_clustering import extract_wallet_features, cluster_wallets_kmeans, visualize_clusters_2d, cluster_wallets_dbscan
 from scripts.graph.categorization.graph_categorizer import CategorizedNode, categorize_graph
 from scripts.graph.model.transactions_graph import TransactionsGraph
 from scripts.graph.util.clustering_utils import clustering_result_to_json
 
-metadata.init()
+prices.init()
 
 
 GRAPH_NAME = "rocket_pool_full_graph_90_days"

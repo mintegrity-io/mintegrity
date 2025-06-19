@@ -37,13 +37,13 @@ class TransactionsGraphBuilder:
 
     def build_graph(self) -> TransactionsGraph:
         """
-        Build the transactions graph for the given root contracts and time range.
+        Build the transactions graph for the given root addresses and time range.
 
         :return: The built TransactionsGraph object.
         """
 
         # Add initial nodes
-        log.info(f"Building transactions graph for {len(self.root_addresses)} root contracts")
+        log.info(f"Building transactions graph for {len(self.root_addresses)} root addresses")
         self.addresses_to_process: set[Address] = set([address for address in self.root_addresses])
         for address in self.root_addresses:
             self.graph.add_node_if_not_exists(address, is_root=True)

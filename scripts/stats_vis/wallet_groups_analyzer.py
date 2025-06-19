@@ -65,9 +65,9 @@ plt.style.use('default')
 
 # Try importing additional modules for full analysis
 try:
-    from scripts.commons import metadata
+    from scripts.commons import prices as metadata
     from scripts.commons.tokens_metadata_scraper import fetch_current_token_prices
-    from scripts.commons.known_token_list import ETH_TOKENS_WHITELIST
+    from scripts.commons.known_token_list import TOKENS_WHITELIST
 
     FULL_ANALYSIS_AVAILABLE = True
 except ImportError as e:
@@ -179,7 +179,7 @@ class BuiltInAddressAnalyzer:
         """Gets current token prices"""
         try:
             # Use existing module to get prices
-            token_prices_with_timestamps = fetch_current_token_prices(ETH_TOKENS_WHITELIST)
+            token_prices_with_timestamps = fetch_current_token_prices(TOKENS_WHITELIST)
 
             current_prices = {}
             for token, (timestamp, price) in token_prices_with_timestamps.items():
@@ -192,7 +192,7 @@ class BuiltInAddressAnalyzer:
 
             # Fallback: use prices from metadata
             fallback_prices = {}
-            for token in ETH_TOKENS_WHITELIST:
+            for token in TOKENS_WHITELIST:
                 try:
                     price = metadata.get_token_price_usd(token, str(int(time.time())))
                     if price > 0:

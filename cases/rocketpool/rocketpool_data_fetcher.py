@@ -25,8 +25,8 @@ from typing import Dict, List, Set, Optional
 import requests
 from tqdm import tqdm
 
-from scripts.commons import metadata
-from scripts.commons.known_token_list import ETH_TOKENS_WHITELIST
+from scripts.commons import prices
+from scripts.commons.known_token_list import TOKENS_WHITELIST
 from scripts.commons.logging_config import get_logger
 from scripts.commons.model import AddressType
 from scripts.commons.tokens_metadata_scraper import fetch_current_token_prices
@@ -81,7 +81,7 @@ class RocketPoolDataFetcher:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize metadata
-        metadata.init()
+        prices.init()
         
         # Get current token prices
         self.current_token_prices = self._fetch_current_prices()
@@ -94,7 +94,7 @@ class RocketPoolDataFetcher:
     def _fetch_current_prices(self) -> Dict[str, float]:
         """Fetch current token prices as fallback"""
         try:
-            token_prices_with_timestamps = fetch_current_token_prices(ETH_TOKENS_WHITELIST)
+            token_prices_with_timestamps = fetch_current_token_prices(TOKENS_WHITELIST)
             
             current_prices = {}
             for token, (timestamp, price) in token_prices_with_timestamps.items():
@@ -108,8 +108,8 @@ class RocketPoolDataFetcher:
             log.info("Falling back to metadata prices")
             
             fallback_prices = {}
-            for token in ETH_TOKENS_WHITELIST:
-                price = metadata.get_token_price_usd(token, str(int(time.time())))
+            for token in TOKENS_WHITELIST:
+                price = prices.get_token_price_usd(token, str(int(time.time())))
                 if price > 0:
                     fallback_prices[token] = price
                     
@@ -124,7 +124,7 @@ class RocketPoolDataFetcher:
         
         # Try metadata first
         try:
-            price = metadata.get_token_price_usd(token_symbol, str(timestamp))
+            price = prices.get_token_price_usd(token_symbol, str(timestamp))
             if price > 0:
                 self.price_cache[cache_key] = price
                 return price

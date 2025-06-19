@@ -2,7 +2,8 @@ from scripts.commons.logging_config import get_logger
 
 log = get_logger()
 
-ETH_TOKENS_WHITELIST = [
+TOKENS_WHITELIST = [
+    "BTC",  # Bitcoin (native token)
     "ETH",  # Ethereum (native token)
     "WETH",  # Wrapped Ethereum
     "USDT",  # Tether

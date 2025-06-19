@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 
 from scripts.commons.logging_config import get_logger
-from scripts.commons.metadata import get_token_price_usd
+from scripts.commons.prices import get_token_price_usd
 
 log = get_logger()
 
@@ -25,9 +25,9 @@ class Address:
     address: str
     type: AddressType
 
-    def __post_init__(self):
-        object.__setattr__(self, 'address', self.address.lower())
-        self.check_ethereum_address_validity()
+    # def __post_init__(self): # does not work with btc
+        # object.__setattr__(self, 'address', self.address.lower())
+        # self.check_ethereum_address_validity() # we switched to multiple networks, so we cannot validate Ethereum address here TODO remove
 
     def check_ethereum_address_validity(self):
         """

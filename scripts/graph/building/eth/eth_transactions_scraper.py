@@ -5,7 +5,7 @@ import requests
 from typing import Dict, Optional, List
 from dotenv import load_dotenv
 
-from scripts.commons.known_token_list import ETH_TOKENS_WHITELIST, ETH_TOKENS_BLACKLIST
+from scripts.commons.known_token_list import TOKENS_WHITELIST, ETH_TOKENS_BLACKLIST
 from scripts.commons.model import *
 
 log = get_logger()
@@ -508,7 +508,7 @@ def get_interacting_addresses(
                         if transfer.get("asset") in ETH_TOKENS_BLACKLIST:
                             log.debug(f"Skipping transfer with blacklisted asset {transfer.get('asset')}")
                             continue
-                        if transfer.get("asset") not in ETH_TOKENS_WHITELIST:
+                        if transfer.get("asset") not in TOKENS_WHITELIST:
                             # Only ETH transfers are supported for now
                             # Uncomment the next line to log unknown assets
                             # log.warning(f"Transfer with unknown asset {transfer.get('asset')} found, but this asset is not in the whitelist. Skipping. Transaction hash: {transfer.get('hash')}")

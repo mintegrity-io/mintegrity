@@ -5,6 +5,7 @@ import requests
 from typing import Dict, Optional, List, Tuple, Set
 from dotenv import load_dotenv
 from dataclasses import dataclass
+import datetime
 
 from scripts.commons.model import *
 
@@ -13,15 +14,13 @@ log = get_logger()
 # Load environment variables from .env file
 load_dotenv()
 
-# Get the Alchemy API key from the environment variable
-ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY")
-
-if not ALCHEMY_API_KEY:
-    raise ValueError("ALCHEMY_API_KEY is not set in the environment variables.")
-
 # Constants for Bitcoin networks
-BTC_MAINNET = "btc-mainnet"
-BTC_TESTNET = "btc-testnet"
+BTC_MAINNET = "mainnet"
+BTC_TESTNET = "testnet"
+
+# Base URLs for mempool.space API
+MEMPOOL_API_BASE_URL = "https://mempool.space/api"
+MEMPOOL_TESTNET_API_BASE_URL = "https://mempool.space/testnet/api"
 
 # Define BTC token symbol
 BTC_TOKEN_SYMBOL = "BTC"
@@ -99,43 +98,90 @@ def satoshi_to_btc(satoshi_value: int) -> float:
     """
     return satoshi_value / 100000000.0
 
+def get_api_base_url(network: str = BTC_MAINNET) -> str:
+    """
+    Returns the base URL for the mempool.space API based on the network
+
+    :param network: Bitcoin network (mainnet or testnet)
+    :return: Base URL for the API
+    """
+    if network == BTC_TESTNET:
+        return MEMPOOL_TESTNET_API_BASE_URL
+    return MEMPOOL_API_BASE_URL
+
 def get_block_by_timestamp(timestamp: int, network: str = BTC_MAINNET) -> str:
     """
-    Gets Bitcoin block height by timestamp using Alchemy's utility endpoint.
+    Gets Bitcoin block height by timestamp using mempool.space's API.
 
     :param timestamp: Unix timestamp in seconds
     :param network: The Bitcoin network
     :return: Block height as a string
     """
-    url = f"https://api.g.alchemy.com/data/v1/{ALCHEMY_API_KEY}/utility/blocks/by-timestamp"
-    log.info(f"Fetching block number for timestamp: {print_timestamp(timestamp)} on network: {network}")
+    base_url = get_api_base_url(network)
 
-    params = {
-        "timestamp": str(timestamp),
-        "networks": [network],
-        "direction": "AFTER"
-    }
+    # Get blocks within a reasonable range around the timestamp
+    # First, fetch the current block height
+    try:
+        blocks_url = f"{base_url}/blocks/tip/height"
+        response = requests.get(blocks_url)
+        response.raise_for_status()
+        current_height = int(response.text)
 
-    response = requests.get(url, params=params)
+        # Estimate the block height for the timestamp (Bitcoin averages ~10 min per block)
+        # Calculate how many blocks back we need to go (rough estimate)
+        current_time = int(time.time())
+        time_diff = current_time - timestamp
+        blocks_back = time_diff // 600  # 600 seconds = 10 minutes
 
-    if response.status_code == 200:
-        data = response.json()
-        if "block" in data["data"][0]:
-            block_info = data["data"][0]["block"]
-            height = block_info["number"]
-            timestamp_from_block = block_info["timestamp"]
-            log.debug(f"Block height: {height}, Timestamp: {timestamp_from_block}")
-            return str(height)
-        else:
-            log.error(f"Error in block-by-timestamp response: {data}")
-            raise Exception(f"Error in block-by-timestamp response: {data}")
-    else:
-        log.error(f"Error getting block by timestamp: {response.status_code}, {response.text}")
-        raise Exception(f"Error: {response.status_code}, {response.text}")
+        if blocks_back > current_height:
+            blocks_back = current_height - 1
+
+        target_height = max(0, current_height - blocks_back)
+
+        # Now we'll search for the exact block by timestamp
+        found_block = None
+        search_range = 1000  # We'll look at a range of blocks
+
+        # Start at our estimated height and search backward
+        start_height = min(current_height, target_height + search_range // 2)
+        end_height = max(0, start_height - search_range)
+
+        log.info(f"Searching for block with timestamp near {print_timestamp(timestamp)} in range {end_height} to {start_height}")
+
+        # Get blocks in batches to find the right one
+        batch_size = 10
+        for height in range(start_height, end_height, -batch_size):
+            blocks_url = f"{base_url}/v1/blocks/{height}"
+            response = requests.get(blocks_url)
+            response.raise_for_status()
+            blocks = response.json()
+
+            for block in blocks:
+                block_time = block['timestamp']
+                if block_time >= timestamp:
+                    found_block = block
+                elif found_block is not None:
+                    # We've already found a block after the timestamp, and now we're at blocks before
+                    # Return the block height we found
+                    log.debug(f"Found block height: {found_block['height']} with timestamp: {found_block['timestamp']}")
+                    return str(found_block['height'])
+
+        # If we looked through all blocks and didn't find a transition, use the last one we checked
+        if found_block is not None:
+            log.debug(f"Found block height: {found_block['height']} with timestamp: {found_block['timestamp']}")
+            return str(found_block['height'])
+
+        # If we couldn't find a suitable block, return the estimated height
+        log.warning(f"Could not find exact block for timestamp {print_timestamp(timestamp)}, using estimate: {target_height}")
+        return str(target_height)
+
+    except Exception as e:
+        log.error(f"Error finding block by timestamp: {e}")
+        raise Exception(f"Error finding block by timestamp: {e}")
 
 def get_address_transactions(address: str, from_block: str, to_block: str, network: str = BTC_MAINNET) -> dict:
     """
-    Fetches transactions for a Bitcoin address between two block heights.
+    Fetches transactions for a Bitcoin address between two block heights using mempool.space API.
 
     :param address: Bitcoin address
     :param from_block: Start block height
@@ -143,79 +189,121 @@ def get_address_transactions(address: str, from_block: str, to_block: str, netwo
     :param network: Bitcoin network
     :return: Dictionary containing transaction data
     """
-    url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+    base_url = get_api_base_url(network)
+    from_block_int = int(from_block)
+    to_block_int = int(to_block)
 
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "alchemy_getAssetTransfers",
-        "params": [{
-            "fromBlock": from_block,
-            "toBlock": to_block,
-            "toAddress": address,
-            "withMetadata": True,
-            "excludeZeroValue": False,
-            "category": ["external"]
-        }]
-    }
+    log.info(f"Fetching transactions for address {address} from block {from_block_int} to {to_block_int}")
 
+    # Initialize results
     incoming_txs = []
-    page_key = None
-
-    # Fetch incoming transactions with pagination
-    while True:
-        if page_key:
-            payload["params"][0]["pageKey"] = page_key
-
-        response = requests.post(url, json=payload)
-
-        if response.status_code == 200:
-            data = response.json()
-            if "result" in data:
-                incoming_txs.extend(data["result"].get("transfers", []))
-                page_key = data["result"].get("pageKey")
-                if not page_key:
-                    break
-            elif "error" in data:
-                log.error(f"Error from Alchemy API: {data['error']}")
-                break
-        else:
-            log.error(f"Request failed with status code {response.status_code}: {response.text}")
-            break
-
-    # Now fetch outgoing transactions
-    payload["params"][0].pop("toAddress", None)
-    payload["params"][0]["fromAddress"] = address
-
     outgoing_txs = []
-    page_key = None
 
-    while True:
-        if page_key:
-            payload["params"][0]["pageKey"] = page_key
-        else:
-            payload["params"][0].pop("pageKey", None)
+    try:
+        # Fetch transactions for the address
+        # First, get transaction history
+        txs_url = f"{base_url}/address/{address}/txs"
+        response = requests.get(txs_url)
+        response.raise_for_status()
 
-        response = requests.post(url, json=payload)
+        transactions = response.json()
+        log.info(f"Found {len(transactions)} total transactions for address {address}")
 
-        if response.status_code == 200:
-            data = response.json()
-            if "result" in data:
-                outgoing_txs.extend(data["result"].get("transfers", []))
-                page_key = data["result"].get("pageKey")
-                if not page_key:
-                    break
-            elif "error" in data:
-                log.error(f"Error from Alchemy API: {data['error']}")
-                break
-        else:
-            log.error(f"Request failed with status code {response.status_code}: {response.text}")
-            break
+        # Process each transaction
+        for tx in transactions:
+            # Get detailed transaction info
+            tx_url = f"{base_url}/tx/{tx['txid']}"
+            tx_response = requests.get(tx_url)
+            tx_response.raise_for_status()
+            tx_details = tx_response.json()
 
-    return {
-        "incoming": incoming_txs,
-        "outgoing": outgoing_txs
-    }
+            # Check if transaction is within our block height range
+            if 'status' in tx_details and 'block_height' in tx_details['status']:
+                block_height = tx_details['status']['block_height']
+                if block_height < from_block_int or block_height > to_block_int:
+                    continue
+
+                # In Bitcoin's UTXO model, we need to check if our address is primarily an input or output
+                # A transaction is outgoing if our address is in inputs (we're spending)
+                # A transaction is incoming if our address is only in outputs (we're receiving)
+
+                # First, determine if we're in inputs (sending)
+                address_in_inputs = False
+                for vin in tx_details.get('vin', []):
+                    if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout'] and vin['prevout']['scriptpubkey_address'] == address:
+                        address_in_inputs = True
+                        break
+
+                # Format transaction into our expected format
+                formatted_tx = {
+                    'hash': tx_details['txid'],
+                    'metadata': {
+                        'blockTimestamp': tx_details['status'].get('block_time', 0),
+                        'blockHeight': block_height
+                    }
+                }
+
+                # Handle outgoing transactions (if we're in the inputs)
+                if address_in_inputs:
+                    # This is an outgoing transaction
+                    # Find who received the funds from our address (excluding change back to our address)
+                    receiver = None
+                    for vout in tx_details.get('vout', []):
+                        if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] != address:
+                            receiver = vout['scriptpubkey_address']
+                            break
+
+                    # Calculate how much was sent from our address
+                    value = 0
+                    for vin in tx_details.get('vin', []):
+                        if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout'] and vin['prevout']['scriptpubkey_address'] == address:
+                            value += vin['prevout'].get('value', 0)
+
+                    # Account for change sent back to our address
+                    for vout in tx_details.get('vout', []):
+                        if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] == address:
+                            value -= vout.get('value', 0)
+
+                    # Ensure value is positive
+                    value = max(0, value)
+
+                    formatted_tx['from'] = address
+                    formatted_tx['to'] = receiver if receiver else 'unknown'
+                    formatted_tx['value'] = value
+                    outgoing_txs.append(formatted_tx)
+                else:
+                    # Check if we're in the outputs (receiving)
+                    address_in_outputs = False
+                    received_value = 0
+                    for vout in tx_details.get('vout', []):
+                        if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] == address:
+                            address_in_outputs = True
+                            received_value += vout.get('value', 0)
+
+                    # Only process as incoming if we're in outputs but not in inputs
+                    if address_in_outputs:
+                        # Find who sent the funds to our address
+                        sender = None
+                        for vin in tx_details.get('vin', []):
+                            if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout']:
+                                sender = vin['prevout']['scriptpubkey_address']
+                                break
+
+                        formatted_tx['from'] = sender if sender else 'unknown'
+                        formatted_tx['to'] = address
+                        formatted_tx['value'] = received_value
+                        incoming_txs.append(formatted_tx)
+
+        log.info(f"Processed {len(incoming_txs)} incoming and {len(outgoing_txs)} outgoing transactions within block range")
+
+        return {
+            'incoming': incoming_txs,
+            'outgoing': outgoing_txs
+        }
+
+    except Exception as e:
+        log.error(f"Error fetching address transactions: {e}")
+        raise Exception(f"Error fetching address transactions: {e}")
 
 def get_address_interactions(
         target_address: Address,
@@ -230,7 +318,7 @@ def get_address_interactions(
     :param target_address: The address to get interactions for incoming and outgoing transactions
     :param from_timestamp: Start timestamp in Unix seconds
     :param to_timestamp: End timestamp in Unix seconds
-    :param network: The Bitcoin network (e.g., 'btc-mainnet', 'btc-testnet')
+    :param network: The Bitcoin network (e.g., 'mainnet', 'testnet')
     :param limit: Maximum number of transactions to return
     :return: A set of tuples containing the interaction direction and transaction details
     """
@@ -257,20 +345,16 @@ def get_address_interactions(
         if not all(key in tx for key in ["hash", "from", "to", "value", "metadata"]):
             continue
 
-        if tx["to"] != target_address.address:
+        if tx["to"] != target_address:
             continue
-
-        # Create an ETH-compatible address for the model
-        from_addr_eth = convert_btc_to_eth_address_format(tx["from"])
-        to_addr_eth = convert_btc_to_eth_address_format(tx["to"])
 
         # Create transaction object
         transaction = Transaction(
             transaction_hash=tx["hash"],
-            address_from=Address(from_addr_eth, AddressType.WALLET),
-            address_to=Address(to_addr_eth, AddressType.WALLET),
-            value=satoshi_to_btc(int(float(tx["value"]) * 100000000)),  # Convert to BTC
-            timestamp=tx["metadata"]["blockTimestamp"],
+            address_from=Address(tx["from"], AddressType.WALLET),
+            address_to=Address(tx["to"], AddressType.WALLET),
+            value=satoshi_to_btc(tx["value"]),
+            timestamp=str(tx["metadata"]["blockTimestamp"]),
             token_symbol=BTC_TOKEN_SYMBOL
         )
 
@@ -289,17 +373,13 @@ def get_address_interactions(
         if tx["from"] != target_address.address:
             continue
 
-        # Create an ETH-compatible address for the model
-        from_addr_eth = convert_btc_to_eth_address_format(tx["from"])
-        to_addr_eth = convert_btc_to_eth_address_format(tx["to"])
-
         # Create transaction object
         transaction = Transaction(
             transaction_hash=tx["hash"],
-            address_from=Address(from_addr_eth, AddressType.WALLET),
-            address_to=Address(to_addr_eth, AddressType.WALLET),
-            value=satoshi_to_btc(int(float(tx["value"]) * 100000000)),  # Convert to BTC
-            timestamp=tx["metadata"]["blockTimestamp"],
+            address_from=Address(tx["from"], AddressType.WALLET),
+            address_to=Address(tx["to"], AddressType.WALLET),
+            value=satoshi_to_btc(tx["value"]),
+            timestamp=str(tx["metadata"]["blockTimestamp"]),
             token_symbol=BTC_TOKEN_SYMBOL
         )
 

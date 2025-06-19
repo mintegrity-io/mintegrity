@@ -3,12 +3,12 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from scripts.commons import metadata
+from scripts.commons import prices
 from scripts.graph.analysis.clustering.wallet_clustering import extract_wallet_features, cluster_wallets_kmeans, visualize_clusters_2d, cluster_wallets_dbscan
 from scripts.graph.categorization.graph_categorizer import CategorizedNode, categorize_graph
 from scripts.graph.model.transactions_graph import TransactionsGraph
 
-metadata.init()
+prices.init()
 
 GRAPH_FILE_NAME = "rocket_pool_graph_60_days"
 

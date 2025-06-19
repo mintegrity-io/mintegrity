@@ -1,10 +1,10 @@
 import json
 
-from scripts.commons import metadata
+from scripts.commons import prices
 from scripts.graph.categorization.graph_categorizer import categorize_graph, CategorizedNode
 from scripts.graph.model.transactions_graph import TransactionsGraph
 
-metadata.init()
+prices.init()
 
 GRAPH_NAME = "rocket_pool_full_graph_90_days"
 

@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from scripts.commons.known_token_list import ETH_TOKENS_WHITELIST
+from scripts.commons.known_token_list import TOKENS_WHITELIST
 from scripts.commons.logging_config import get_logger
 from scripts.commons.tokens_metadata_scraper import fetch_current_token_prices
 
@@ -18,7 +18,7 @@ def init():
 def print_current_token_prices():
     log.info("Fetching current token prices")
     prices: dict[str, float] = {}
-    for token, (timestamp, price_usd) in fetch_current_token_prices(ETH_TOKENS_WHITELIST).items():
+    for token, (timestamp, price_usd) in fetch_current_token_prices(TOKENS_WHITELIST).items():
         prices[token] = price_usd
         log.info(f"Current price for token {token}={price_usd} USD")
     print(json.dumps(prices))
@@ -29,7 +29,7 @@ def initialize_prefetched_token_prices():
     timestamp = int(datetime.now().timestamp())
 
     # Sample prices for common tokens (roughly based on May 2025 values)
-    prices: dict[str, float] = {"ETH": 2550.6769170918, "WETH": 2551.0539540149, "USDT": 1.0002490121, "USDC": 0.9997909069, "USDS": 0.9998031023, "sUSDS": 1.0524623402,
+    prices: dict[str, float] = {"BTC": 104756.6, "ETH": 2550.6769170918, "WETH": 2551.0539540149, "USDT": 1.0002490121, "USDC": 0.9997909069, "USDS": 0.9998031023, "sUSDS": 1.0524623402,
                                 "DAI": 1.0000516287, "BNB": 673.3579776053, "LINK": 15.5877569648, "UNI": 6.2003065356, "AAVE": 269.0561608443, "MKR": 1670.1847888145,
                                 "CRV": 0.7861946698, "COMP": 42.6079949999, "SNX": 0.7841156312, "SHIB": 1.43893e-05, "GRT": 0.1095344284, "LDO": 0.8654202453, "RPL": 4.9570709833,
                                 "RETH": 2898.0353211156, "STETH": 2548.1659172221, "WSTETH": 3069.5535298956, "ARB": 0.3956256815, "OP": 0.7606708901, "DYDX": 0.636126718,
@@ -41,7 +41,7 @@ def initialize_prefetched_token_prices():
                                 "LBTC": 108478.889811304, "EURC": 1.1354157453, "SAFE": 0.5233332305, "PYUSD": 0.9991614125, "DEUSD": 1.0000158211, "CVX": 3.3880037586}
 
     # Store prices directly in the dictionary
-    for token_symbol in ETH_TOKENS_WHITELIST:
+    for token_symbol in TOKENS_WHITELIST:
         # Use the price from the map
         price = prices.get(token_symbol)
         if price is None:
@@ -54,7 +54,7 @@ def initialize_prefetched_token_prices():
     CURRENT_TOKEN_PRICES = token_prices
 
 
-def get_token_price_usd(token_symbol: str, timestamp: str) -> float:
+def get_token_price_usd(token_symbol: str, timestamp: int) -> float:
     # Currently this function returns the current price from the pre-fetched token prices, timestamp is not used
     if token_symbol in CURRENT_TOKEN_PRICES:
         return CURRENT_TOKEN_PRICES[token_symbol]
