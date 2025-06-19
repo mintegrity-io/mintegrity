@@ -41,6 +41,7 @@ It enables users to build, visualize, and analyze transaction graphs to gain dee
 
 
 ## Installation
+Compatible with Python 3.11 and newer.
 
 1. Clone this repository
 2. Create a virtual environment using venv

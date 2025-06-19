@@ -1,6 +1,8 @@
 from enum import IntEnum
 
-from scripts.commons.transactions_metadata_scraper import get_address_interactions
+from scripts.graph.building.eth.eth_transactions_scraper import get_address_interactions as eth_address_interactions
+from scripts.graph.building.btc.btc_transactions_scraper import get_address_interactions as btc_address_interactions
+
 from scripts.graph.model.transactions_graph import *
 
 log = get_logger()
@@ -18,14 +20,20 @@ class AddressProcessingState(IntEnum):
     PARTIALLY_PROCESSED = 1
 
 
+class TargetNetwork(IntEnum):
+    ETH = 0,
+    BTC = 1
+
+
 class TransactionsGraphBuilder:
-    def __init__(self, root_contracts: set[SmartContract], from_time: int, to_time: int):
+    def __init__(self, root_addresses: set[Address], from_time: int, to_time: int, target_network: TargetNetwork):
         self.graph = TransactionsGraph()
         self.processed_addresses: dict[str, AddressProcessingState] = {}  # Using address string as key
-        self.root_contracts: set[SmartContract] = root_contracts
+        self.root_addresses: set[Address] = root_addresses
         self.from_time: int = from_time
         self.to_time: int = to_time
         self.addresses_to_process: set[Address] = set()
+        self.target_network: TargetNetwork = target_network
 
     def build_graph(self) -> TransactionsGraph:
         """
@@ -35,11 +43,11 @@ class TransactionsGraphBuilder:
         """
 
         # Add initial nodes
-        log.info(f"Building transactions graph for {len(self.root_contracts)} root contracts")
-        self.addresses_to_process: set[Address] = set([contract.address for contract in self.root_contracts])
-        for contract in self.root_contracts:
-            self.graph.add_node_if_not_exists(contract.address, is_root=True)
-            self.add_all_interactions_for_address_and_mark_it_as_processed(contract.address)
+        log.info(f"Building transactions graph for {len(self.root_addresses)} root contracts")
+        self.addresses_to_process: set[Address] = set([address for address in self.root_addresses])
+        for address in self.root_addresses:
+            self.graph.add_node_if_not_exists(address, is_root=True)
+            self.add_all_interactions_for_address_and_mark_it_as_processed(address)
 
         iteration = 0
         while True:
@@ -105,7 +113,7 @@ class TransactionsGraphBuilder:
         node = self.graph.get_node_by_address(address)
         transaction_limit = MAX_TRANSACTIONS_ROOT_NODE if node and node.type == NodeType.ROOT else MAX_TRANSACTIONS_NORMAL_NODE
 
-        interactions_with_address: set[tuple[InteractionDirection, Transaction]] = get_address_interactions(address, self.from_time, self.to_time, limit=transaction_limit)
+        interactions_with_address: set[tuple[InteractionDirection, Transaction]] = self.get_address_interactions(address, self.from_time, self.to_time, limit=transaction_limit)
         number_of_interactions_to_add: int = len(interactions_with_address)
         if number_of_interactions_to_add <= transaction_limit:
             for interaction_entry in interactions_with_address:
@@ -120,3 +128,11 @@ class TransactionsGraphBuilder:
                 self.graph.add_transaction(transaction)
             # Mark processed addresses to avoid infinite loops
             self.mark_address_as_partially_processed(address, f"Too many transactions to process. Capped at {transaction_limit}.")
+
+    def get_address_interactions(self, address, from_time, to_time, limit):
+        if self.target_network == TargetNetwork.ETH:
+            return eth_address_interactions(address, from_time, to_time, limit=limit)
+        elif self.target_network == TargetNetwork.BTC:
+            return btc_address_interactions(address, from_time, to_time, limit=limit)
+        else:
+            raise ValueError(f"Unsupported target network: {self.target_network.name}")
