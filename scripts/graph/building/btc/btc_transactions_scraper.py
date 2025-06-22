@@ -31,6 +31,73 @@ _address_info_cache = {}
 # Path to the persistent cache file
 _CACHE_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "cache", "btc_address_cache.json")
 
+# Maximum number of consecutive retry attempts
+MAX_RETRY_ATTEMPTS = 5
+# Initial delay between retries for 429 errors (in seconds)
+INITIAL_RETRY_DELAY_SECONDS = 2
+# Connection timeout in seconds
+CONNECTION_TIMEOUT_SECONDS = 5
+
+def request_with_retry(url: str) -> requests.Response:
+    """
+    Performs an HTTP GET request with retry logic for rate limiting (429 errors).
+
+    Uses exponential backoff strategy for retries.
+
+    :param url: URL to fetch
+    :return: Response object
+    :raises Exception: After MAX_RETRY_ATTEMPTS consecutive failures
+    """
+    attempt = 0
+    retry_delay = INITIAL_RETRY_DELAY_SECONDS
+
+    while attempt < MAX_RETRY_ATTEMPTS:
+        attempt += 1
+        try:
+            log.debug(f"Requesting URL: {url}, attempt {attempt}/{MAX_RETRY_ATTEMPTS}")
+            response = requests.get(url, timeout=CONNECTION_TIMEOUT_SECONDS)
+
+            # If we get a 429 error, wait and retry with exponential backoff
+            if response.status_code == 429:
+                log.warning(f"Request for {url} failed -> Rate limit exceeded (429). Attempt {attempt}/{MAX_RETRY_ATTEMPTS}. "
+                           f"Waiting {retry_delay} seconds before retrying...")
+                time.sleep(retry_delay)
+                # Double the delay for the next retry (exponential backoff)
+                retry_delay = min(retry_delay * 2, 60)  # Cap at 60 seconds
+                continue
+
+            # For other errors, just raise the exception
+            response.raise_for_status()
+
+            # If request is successful, return the response
+            log.debug(f"Request to {url} succeeded")
+            return response
+
+        except requests.exceptions.Timeout:
+            log.warning(f"Request to {url} timed out. Attempt {attempt}/{MAX_RETRY_ATTEMPTS}. Retrying...")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 60)
+
+        except requests.exceptions.ConnectionError:
+            log.warning(f"Connection error when requesting {url}. Attempt {attempt}/{MAX_RETRY_ATTEMPTS}. Retrying...")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 60)
+
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and hasattr(e.response, 'status_code') and e.response.status_code == 429:
+                log.warning(f"Rate limit exceeded (429). Attempt {attempt}/{MAX_RETRY_ATTEMPTS}. "
+                           f"Waiting {retry_delay} seconds before retrying...")
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 60)
+            else:
+                # For other exceptions, just re-raise
+                log.error(f"Request error: {e}")
+                raise
+
+    # If we've exhausted our retries
+    log.error(f"Failed after {MAX_RETRY_ATTEMPTS} retry attempts: {url}")
+    raise Exception(f"Failed after {MAX_RETRY_ATTEMPTS} retry attempts")
+
 def _load_address_cache():
     """Load address cache from file if it exists"""
     if os.path.exists(_CACHE_FILE_PATH):
@@ -113,191 +180,206 @@ def get_block_by_timestamp(timestamp: int, network: str = BTC_MAINNET) -> str:
     """
     Gets Bitcoin block height by timestamp using mempool.space's API.
 
+    Uses the dedicated /api/v1/mining/blocks/timestamp/:timestamp endpoint that directly
+    returns the block closest to the given timestamp.
+
     :param timestamp: Unix timestamp in seconds
     :param network: The Bitcoin network
     :return: Block height as a string
     """
     base_url = get_api_base_url(network)
 
-    # Get blocks within a reasonable range around the timestamp
-    # First, fetch the current block height
     try:
-        blocks_url = f"{base_url}/blocks/tip/height"
-        response = requests.get(blocks_url)
-        response.raise_for_status()
-        current_height = int(response.text)
+        # Use the dedicated timestamp-to-block endpoint which is much more efficient
+        blocks_url = f"{base_url}/v1/mining/blocks/timestamp/{timestamp}"
+        log.info(f"Looking up block for timestamp {print_timestamp(timestamp)} using direct endpoint")
 
-        # Estimate the block height for the timestamp (Bitcoin averages ~10 min per block)
-        # Calculate how many blocks back we need to go (rough estimate)
-        current_time = int(time.time())
-        time_diff = current_time - timestamp
-        blocks_back = time_diff // 600  # 600 seconds = 10 minutes
+        response = request_with_retry(blocks_url)
+        block_data = response.json()
 
-        if blocks_back > current_height:
-            blocks_back = current_height - 1
-
-        target_height = max(0, current_height - blocks_back)
-
-        # Now we'll search for the exact block by timestamp
-        found_block = None
-        search_range = 1000  # We'll look at a range of blocks
-
-        # Start at our estimated height and search backward
-        start_height = min(current_height, target_height + search_range // 2)
-        end_height = max(0, start_height - search_range)
-
-        log.info(f"Searching for block with timestamp near {print_timestamp(timestamp)} in range {end_height} to {start_height}")
-
-        # Get blocks in batches to find the right one
-        batch_size = 10
-        for height in range(start_height, end_height, -batch_size):
-            blocks_url = f"{base_url}/v1/blocks/{height}"
-            response = requests.get(blocks_url)
-            response.raise_for_status()
-            blocks = response.json()
-
-            for block in blocks:
-                block_time = block['timestamp']
-                if block_time >= timestamp:
-                    found_block = block
-                elif found_block is not None:
-                    # We've already found a block after the timestamp, and now we're at blocks before
-                    # Return the block height we found
-                    log.debug(f"Found block height: {found_block['height']} with timestamp: {found_block['timestamp']}")
-                    return str(found_block['height'])
-
-        # If we looked through all blocks and didn't find a transition, use the last one we checked
-        if found_block is not None:
-            log.debug(f"Found block height: {found_block['height']} with timestamp: {found_block['timestamp']}")
-            return str(found_block['height'])
-
-        # If we couldn't find a suitable block, return the estimated height
-        log.warning(f"Could not find exact block for timestamp {print_timestamp(timestamp)}, using estimate: {target_height}")
-        return str(target_height)
+        if 'height' in block_data:
+            log.debug(f"Found block height: {block_data['height']} with hash: {block_data.get('hash', 'unknown')}")
+            return str(block_data['height'])
+        else:
+            log.warning(f"Unexpected response format from timestamp endpoint: {block_data}")
+            raise Exception(f"Invalid response from mempool API: {block_data}")
 
     except Exception as e:
         log.error(f"Error finding block by timestamp: {e}")
         raise Exception(f"Error finding block by timestamp: {e}")
 
-def get_address_transactions(address: str, from_block: str, to_block: str, network: str = BTC_MAINNET) -> dict:
+def get_address_transactions(address: str, from_block: str, to_block: str, network: str = BTC_MAINNET, limit: int = None) -> dict:
     """
     Fetches transactions for a Bitcoin address between two block heights using mempool.space API.
+    Handles pagination to get all transactions within the specified block range.
 
     :param address: Bitcoin address
     :param from_block: Start block height
     :param to_block: End block height
     :param network: Bitcoin network
+    :param limit: Maximum number of transactions to return (both incoming and outgoing combined)
     :return: Dictionary containing transaction data
     """
     base_url = get_api_base_url(network)
     from_block_int = int(from_block)
     to_block_int = int(to_block)
 
-    log.info(f"Fetching transactions for address {address} from block {from_block_int} to {to_block_int}")
+    log.info(f"Fetching transactions for address {address} from block {from_block_int} to {to_block_int}" +
+             (f" with limit {limit}" if limit else ""))
 
     # Initialize results
     incoming_txs = []
     outgoing_txs = []
 
+    # Track all transactions to process
+    all_transactions = []
+    total_transactions_processed = 0
+
     try:
-        # Fetch transactions for the address
-        # First, get transaction history
-        txs_url = f"{base_url}/address/{address}/txs"
-        response = requests.get(txs_url)
-        response.raise_for_status()
+        # Fetch transactions for the address with pagination
+        # The API returns up to 50 mempool transactions + 25 confirmed transactions per request
+        last_txid = None
+        has_more = True
+        reached_from_block = False
+        reached_limit = False
 
-        transactions = response.json()
-        log.info(f"Found {len(transactions)} total transactions for address {address}")
+        while has_more and not reached_from_block and not reached_limit:
+            # Construct URL with pagination parameter if needed
+            txs_url = f"{base_url}/address/{address}/txs/chain"
+            if last_txid:
+                txs_url = f"{txs_url}/{last_txid}"
 
-        # Process each transaction
-        for tx in transactions:
-            # Get detailed transaction info
-            tx_url = f"{base_url}/tx/{tx['txid']}"
-            tx_response = requests.get(tx_url)
-            tx_response.raise_for_status()
-            tx_details = tx_response.json()
+            log.info(f"Fetching transactions from: {txs_url}")
+            response = request_with_retry(txs_url)
 
-            # Check if transaction is within our block height range
-            if 'status' in tx_details and 'block_height' in tx_details['status']:
-                block_height = tx_details['status']['block_height']
-                if block_height < from_block_int or block_height > to_block_int:
+            # Check if the request was successful
+            if response.status_code != 200:
+                log.error(f"API Error: {response.status_code} - {response.text}")
+                if response.status_code == 400:
+                    log.warning(f"Bad request for address: {address}. This might not be a valid Bitcoin address.")
+                    break
+                response.raise_for_status()
+
+            batch_txs = response.json()
+            log.debug(f"Retrieved {len(batch_txs)} transactions in this batch")
+
+            if not batch_txs:
+                has_more = False
+                continue
+
+            # Process each transaction in this batch
+            for tx_details in batch_txs:
+                # Store the last txid for pagination
+                last_txid = tx_details['txid']
+
+                # Get block height from the transaction data
+                block_height = tx_details['status'].get('block_height')
+
+                # Skip unconfirmed transactions or those outside our range
+                if block_height is None or block_height > to_block_int:
+                    log.info(f"Skipping transaction {tx_details['txid']} - block height {block_height} is outside range {from_block_int} to {to_block_int}")
                     continue
 
-                # Get the block timestamp as a string
-                block_timestamp = str(tx_details['status'].get('block_time', 0))
+                if block_height < from_block_int:
+                    # We've gone past our target range, can stop fetching
+                    reached_from_block = True
+                    break
 
-                # In Bitcoin's UTXO model, we need to check if our address is primarily an input or output
-                # A transaction is outgoing if our address is in inputs (we're spending)
-                # A transaction is incoming if our address is only in outputs (we're receiving)
+                # This transaction is within our range, add to the list to process
+                all_transactions.append(tx_details)
+                total_transactions_processed += 1
 
-                # First, determine if we're in inputs (sending)
-                address_in_inputs = False
-                for vin in tx_details.get('vin', []):
-                    if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout'] and vin['prevout']['scriptpubkey_address'] == address:
-                        address_in_inputs = True
+                # Check if we've reached the transaction limit
+                if limit and total_transactions_processed >= limit:
+                    log.info(f"Reached transaction limit of {limit}. Stopping transaction fetching.")
+                    reached_limit = True
+                    break
+
+            # If we got fewer than expected transactions, we've reached the end
+            # mempool.space returns 50 mempool + 25 confirmed transactions per request
+            if len(batch_txs) < 25:
+                has_more = False
+
+        log.info(f"Found {len(all_transactions)} total transactions for address {address} within block range")
+
+        # Process collected transactions
+        for tx_details in all_transactions:
+            # Get the block timestamp as a string
+            block_timestamp = str(tx_details['status'].get('block_time', 0))
+            block_height = tx_details['status']['block_height']
+
+            # In Bitcoin's UTXO model, we need to check if our address is primarily an input or output
+            # A transaction is outgoing if our address is in inputs (we're spending)
+            # A transaction is incoming if our address is only in outputs (we're receiving)
+
+            # First, determine if we're in inputs (sending)
+            address_in_inputs = False
+            for vin in tx_details.get('vin', []):
+                if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout'] and vin['prevout']['scriptpubkey_address'] == address:
+                    address_in_inputs = True
+                    break
+
+            # Format transaction into our expected format
+            formatted_tx = {
+                'hash': tx_details['txid'],
+                'metadata': {
+                    'blockTimestamp': block_timestamp,
+                    'blockHeight': block_height
+                }
+            }
+
+            # Handle outgoing transactions (if we're in the inputs)
+            if address_in_inputs:
+                # This is an outgoing transaction
+                # Find who received the funds from our address (excluding change back to our address)
+                receiver = None
+                for vout in tx_details.get('vout', []):
+                    if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] != address:
+                        receiver = vout['scriptpubkey_address']
                         break
 
-                # Format transaction into our expected format
-                formatted_tx = {
-                    'hash': tx_details['txid'],
-                    'metadata': {
-                        'blockTimestamp': block_timestamp,
-                        'blockHeight': block_height
-                    }
-                }
+                # Calculate how much was sent from our address
+                value = 0
+                for vin in tx_details.get('vin', []):
+                    if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout'] and vin['prevout']['scriptpubkey_address'] == address:
+                        value += vin['prevout'].get('value', 0)
 
-                # Handle outgoing transactions (if we're in the inputs)
-                if address_in_inputs:
-                    # This is an outgoing transaction
-                    # Find who received the funds from our address (excluding change back to our address)
-                    receiver = None
-                    for vout in tx_details.get('vout', []):
-                        if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] != address:
-                            receiver = vout['scriptpubkey_address']
+                # Account for change sent back to our address
+                for vout in tx_details.get('vout', []):
+                    if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] == address:
+                        value -= vout.get('value', 0)
+
+                # Ensure value is positive
+                value = max(0, value)
+
+                formatted_tx['from'] = address
+                formatted_tx['to'] = receiver if receiver else 'unknown'
+                formatted_tx['value'] = value
+                outgoing_txs.append(formatted_tx)
+            else:
+                # Check if we're in the outputs (receiving)
+                address_in_outputs = False
+                received_value = 0
+                for vout in tx_details.get('vout', []):
+                    if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] == address:
+                        address_in_outputs = True
+                        received_value += vout.get('value', 0)
+
+                # Only process as incoming if we're in outputs but not in inputs
+                if address_in_outputs:
+                    # Find who sent the funds to our address
+                    sender = None
+                    for vin in tx_details.get('vin', []):
+                        if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout']:
+                            sender = vin['prevout']['scriptpubkey_address']
                             break
 
-                    # Calculate how much was sent from our address
-                    value = 0
-                    for vin in tx_details.get('vin', []):
-                        if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout'] and vin['prevout']['scriptpubkey_address'] == address:
-                            value += vin['prevout'].get('value', 0)
+                    formatted_tx['from'] = sender if sender else 'unknown'
+                    formatted_tx['to'] = address
+                    formatted_tx['value'] = received_value
+                    incoming_txs.append(formatted_tx)
 
-                    # Account for change sent back to our address
-                    for vout in tx_details.get('vout', []):
-                        if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] == address:
-                            value -= vout.get('value', 0)
-
-                    # Ensure value is positive
-                    value = max(0, value)
-
-                    formatted_tx['from'] = address
-                    formatted_tx['to'] = receiver if receiver else 'unknown'
-                    formatted_tx['value'] = value
-                    outgoing_txs.append(formatted_tx)
-                else:
-                    # Check if we're in the outputs (receiving)
-                    address_in_outputs = False
-                    received_value = 0
-                    for vout in tx_details.get('vout', []):
-                        if 'scriptpubkey_address' in vout and vout['scriptpubkey_address'] == address:
-                            address_in_outputs = True
-                            received_value += vout.get('value', 0)
-
-                    # Only process as incoming if we're in outputs but not in inputs
-                    if address_in_outputs:
-                        # Find who sent the funds to our address
-                        sender = None
-                        for vin in tx_details.get('vin', []):
-                            if 'prevout' in vin and 'scriptpubkey_address' in vin['prevout']:
-                                sender = vin['prevout']['scriptpubkey_address']
-                                break
-
-                        formatted_tx['from'] = sender if sender else 'unknown'
-                        formatted_tx['to'] = address
-                        formatted_tx['value'] = received_value
-                        incoming_txs.append(formatted_tx)
-
-        log.info(f"Processed {len(incoming_txs)} incoming and {len(outgoing_txs)} outgoing transactions within block range")
+        log.info(f"Processed {len(incoming_txs)} incoming and {len(outgoing_txs)} outgoing transactions within block range for address {address}")
 
         return {
             'incoming': incoming_txs,
@@ -325,7 +407,7 @@ def get_address_interactions(
     :param limit: Maximum number of transactions to return
     :return: A set of tuples containing the interaction direction and transaction details
     """
-    log.info(f"Fetching interactions for address: {target_address.address} from {print_timestamp(from_timestamp)} to {print_timestamp(to_timestamp)} on network: {network}")
+    log.info(f"Fetching interactions for address: {target_address.address} from {print_timestamp(from_timestamp)} to {print_timestamp(to_timestamp)} on network: {network} with limit {limit}")
 
     # Convert timestamps to block heights
     from_block = get_block_by_timestamp(from_timestamp, network)
@@ -333,17 +415,14 @@ def get_address_interactions(
 
     log.info(f"Converted timestamps to blocks: {from_timestamp} -> {from_block}, {to_timestamp} -> {to_block}")
 
-    # Get all transactions for this address
-    transactions_data = get_address_transactions(target_address.address, from_block, to_block, network)
+    # Get all transactions for this address with the limit applied at the API level
+    transactions_data = get_address_transactions(target_address.address, from_block, to_block, network, limit=limit)
 
     interactions: set[tuple[InteractionDirection, Transaction]] = set()
     tx_count = 0
 
     # Process incoming transactions
     for tx in transactions_data["incoming"]:
-        if tx_count >= limit:
-            break
-
         # Skip transactions without required data
         if not all(key in tx for key in ["hash", "from", "to", "value", "metadata"]):
             continue
@@ -366,9 +445,6 @@ def get_address_interactions(
 
     # Process outgoing transactions
     for tx in transactions_data["outgoing"]:
-        if tx_count >= limit:
-            break
-
         # Skip transactions without required data
         if not all(key in tx for key in ["hash", "from", "to", "value", "metadata"]):
             continue
