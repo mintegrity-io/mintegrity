@@ -8,7 +8,7 @@ from scripts.graph.visualization.transaction_graph_visualization import visualiz
 
 prices.init()
 
-GRAPH_NAME = "btc_full_graph_150_days"
+GRAPH_NAME = "btc_full_graph_60_days"
 GRAPH_PATH = f"./files/{GRAPH_NAME}.json"
 graph = TransactionsGraph.from_dict(json.load(open(GRAPH_PATH)))
 

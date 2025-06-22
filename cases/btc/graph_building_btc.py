@@ -13,7 +13,7 @@ days = 60
 TO_TIME = int(datetime.datetime.now().timestamp()) # now should be used with mempool, otherwise it will be very slow
 FROM_TIME = TO_TIME - (days * 24 * 60 * 60)
 
-GRAPH_NAME = f"btc_full_graph_{days}_test_days"
+GRAPH_NAME = f"btc_full_graph_{days}_days"
 GRAPH_PATH = f"./files/{GRAPH_NAME}.json"
 
 prices.init()

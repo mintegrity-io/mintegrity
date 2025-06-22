@@ -55,7 +55,12 @@ Compatible with Python 3.11 and newer.
 ## Usage Examples
 
 ### Basic Transaction Graph Analysis
+
+#### ETH
 The `cases\rocketpool` directory contains complete examples demonstrating how to use the framework based on the [Rocket Pool](https://rocketpool.net/) smart contracts for basic graph building and analysis.
+
+#### BTC
+The `cases\btc` directory contains examples for analyzing Bitcoin transactions, including building transaction graphs and visualizing it.
 
 ### Enhanced Statistics and Visualization
 The `scripts\stats_vis` directory provides advanced analytical tools:
