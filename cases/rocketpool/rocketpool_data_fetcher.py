@@ -7,7 +7,7 @@ This script handles all data retrieval operations for Rocket Pool analysis:
 2. Extracts addresses that interact with Rocket Pool contracts  
 3. Fetches transaction data from Etherscan API (365 days)
 4. Fetches data from Rocket Pool Subgraph (365 days)
-5. Retrieves historical token prices
+5. Retrieves historical token prices using pre-loaded prices
 6. Saves raw data in structured format for later analysis
 
 The output can be used by the analysis script in scripts/stats_vis/
@@ -15,7 +15,6 @@ The output can be used by the analysis script in scripts/stats_vis/
 
 import json
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
@@ -26,12 +25,13 @@ import requests
 from tqdm import tqdm
 
 from scripts.commons import prices
-from scripts.commons.known_token_list import TOKENS_WHITELIST
 from scripts.commons.logging_config import get_logger
 from scripts.commons.model import AddressType
-from scripts.commons.tokens_metadata_scraper import fetch_current_token_prices
 from scripts.graph.model.transactions_graph import TransactionsGraph, NodeType
 from scripts.graph.util.transactions_graph_json import load_graph_from_json
+from scripts.subgraph.client import SubgraphClient
+# Use existing functions instead of duplicating
+from scripts.eth_transactions_scraper import get_address_types, _save_address_type_cache
 
 log = get_logger()
 
@@ -56,7 +56,6 @@ class FetchMetadata:
     fetch_timestamp: str
     graph_source: str
     addresses_analyzed: int
-    analysis_mode: str  # "rocket_pool_only" or "all_addresses"
     api_sources: List[str]
     success_rate: float
     time_period_days: int = 365
@@ -68,128 +67,62 @@ class RocketPoolDataFetcher:
     def __init__(self,
                  graph_file_path: str,
                  output_dir: str = "files/rocket_pool_data",
-                 max_workers: int = 3,
-                 analyze_all_addresses: bool = False):
+                 max_workers: int = 3):
         
         self.graph_file_path = Path(graph_file_path)
         self.output_dir = Path(output_dir)
         self.max_workers = max_workers
-        self.analyze_all_addresses = analyze_all_addresses
         self.price_cache = {}
+        
+        # Initialize subgraph client
+        self.subgraph_client = SubgraphClient()
         
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize metadata
+        # Initialize metadata prices
         prices.init()
-        
-        # Get current token prices
-        self.current_token_prices = self._fetch_current_prices()
         
         log.info(f"Initialized Rocket Pool Data Fetcher")
         log.info(f"Graph file: {self.graph_file_path}")
         log.info(f"Output directory: {self.output_dir}")
-        log.info(f"Mode: {'All addresses' if analyze_all_addresses else 'Rocket Pool interactions only'}")
-
-    def _fetch_current_prices(self) -> Dict[str, float]:
-        """Fetch current token prices as fallback"""
-        try:
-            token_prices_with_timestamps = fetch_current_token_prices(TOKENS_WHITELIST)
-            
-            current_prices = {}
-            for token, (timestamp, price) in token_prices_with_timestamps.items():
-                current_prices[token] = price
-                log.debug(f"Loaded fallback price for {token}: ${price:.4f}")
-                
-            return current_prices
-            
-        except Exception as e:
-            log.warning(f"Failed to fetch current prices via API: {e}")
-            log.info("Falling back to metadata prices")
-            
-            fallback_prices = {}
-            for token in TOKENS_WHITELIST:
-                price = prices.get_token_price_usd(token, str(int(time.time())))
-                if price > 0:
-                    fallback_prices[token] = price
-                    
-            return fallback_prices
+        log.info(f"Mode: Rocket Pool interactions only")
 
     def get_historical_token_price(self, token_symbol: str, timestamp: int) -> float:
-        """Get historical token price at specific timestamp"""
+        """Get historical token price using pre-loaded prices from prices.py"""
         cache_key = f"{token_symbol.upper()}-{timestamp}"
         
         if cache_key in self.price_cache:
             return self.price_cache[cache_key]
         
-        # Try metadata first
         try:
             price = prices.get_token_price_usd(token_symbol, str(timestamp))
             if price > 0:
                 self.price_cache[cache_key] = price
                 return price
         except Exception as e:
-            log.debug(f"Metadata price lookup failed for {token_symbol}: {e}")
+            log.debug(f"Price lookup failed for {token_symbol}: {e}")
         
-        # Use external API
-        try:
-            token_to_pair = {
-                'ETH': 'ETH-USD', 'BTC': 'BTC-USD', 'WETH': 'ETH-USD',
-                'USDT': 'USDT-USD', 'USDC': 'USDC-USD', 'DAI': 'DAI-USD',
-                'LINK': 'LINK-USD', 'UNI': 'UNI-USD', 'AAVE': 'AAVE-USD',
-                'MKR': 'MKR-USD', 'CRV': 'CRV-USD', 'COMP': 'COMP-USD',
-                'SNX': 'SNX-USD', 'GRT': 'GRT-USD', 'LDO': 'LDO-USD',
-                'MATIC': 'MATIC-USD', 'SHIB': 'SHIB-USD'
-            }
-            
-            pair = token_to_pair.get(token_symbol.upper())
-            if not pair:
-                log.warning(f"Token {token_symbol} not supported, using ETH price as fallback")
-                if token_symbol.upper() != 'ETH':
-                    return self.get_historical_token_price('ETH', timestamp)
-                pair = 'ETH-USD'
-            
-            # Coinbase API
-            start_time = timestamp - 3600
-            end_time = timestamp + 3600
-            
-            url = f"https://api.exchange.coinbase.com/products/{pair}/candles"
-            params = {
-                'start': datetime.fromtimestamp(start_time, timezone.utc).isoformat(),
-                'end': datetime.fromtimestamp(end_time, timezone.utc).isoformat(),
-                'granularity': 3600
-            }
-            
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            candles = response.json()
-            
-            if not candles:
-                # Try wider range
-                start_time = timestamp - 86400
-                end_time = timestamp + 86400
-                params.update({
-                    'start': datetime.fromtimestamp(start_time, timezone.utc).isoformat(),
-                    'end': datetime.fromtimestamp(end_time, timezone.utc).isoformat(),
-                    'granularity': 86400
-                })
-                
-                response = requests.get(url, params=params, timeout=30)
-                response.raise_for_status()
-                candles = response.json()
-            
-            if not candles:
-                return self.current_token_prices.get(token_symbol, self.current_token_prices.get('ETH', 2500.0))
-            
-            closest_candle = min(candles, key=lambda x: abs(x[0] - timestamp))
-            price = float(closest_candle[4])  # close price
-            
-            self.price_cache[cache_key] = price
-            return price
-            
-        except Exception as e:
-            log.warning(f"Error getting historical price for {token_symbol}: {e}")
-            return self.current_token_prices.get(token_symbol, self.current_token_prices.get('ETH', 2500.0))
+        # Fallback to ETH price if token not found
+        if token_symbol.upper() != 'ETH':
+            try:
+                eth_price = prices.get_token_price_usd('ETH', str(timestamp))
+                if eth_price > 0:
+                    log.warning(f"Token {token_symbol} not found, using ETH price as fallback: ${eth_price}")
+                    self.price_cache[cache_key] = eth_price
+                    return eth_price
+            except Exception as e:
+                log.debug(f"ETH fallback price lookup failed: {e}")
+        
+        # Final fallback
+        fallback_price = prices.CURRENT_TOKEN_PRICES.get('ETH', 2500.0)
+        log.warning(f"Using fallback price for {token_symbol}: ${fallback_price}")
+        self.price_cache[cache_key] = fallback_price
+        return fallback_price
+
+    def get_current_token_prices(self) -> Dict[str, float]:
+        """Get current token prices using pre-loaded prices from prices.py"""
+        return prices.CURRENT_TOKEN_PRICES.copy()
 
     def load_graph(self) -> TransactionsGraph:
         """Load transaction graph from file"""
@@ -208,7 +141,6 @@ class RocketPoolDataFetcher:
         """Identify Rocket Pool contract addresses in the graph"""
         rocket_pool_contracts = set()
         
-        # ROOT nodes are usually main Rocket Pool contracts
         for address, node in graph.nodes.items():
             if node.type == NodeType.ROOT:
                 rocket_pool_contracts.add(address.lower())
@@ -217,20 +149,12 @@ class RocketPoolDataFetcher:
         log.info(f"Identified {len(rocket_pool_contracts)} Rocket Pool contracts")
         return rocket_pool_contracts
 
-    def extract_target_addresses(self, graph: TransactionsGraph) -> Set[str]:
-        """Extract addresses to analyze based on configuration"""
-        if self.analyze_all_addresses:
-            return self._extract_all_addresses(graph)
-        else:
-            return self._extract_rocket_pool_interacting_addresses(graph)
-
-    def _extract_rocket_pool_interacting_addresses(self, graph: TransactionsGraph) -> Set[str]:
+    def extract_rocket_pool_interacting_addresses(self, graph: TransactionsGraph) -> Set[str]:
         """Extract addresses that directly interact with Rocket Pool contracts"""
         rocket_pool_contracts = self.identify_rocket_pool_contracts(graph)
         
         if not rocket_pool_contracts:
-            log.warning("No Rocket Pool contracts identified! Using all addresses as fallback")
-            return self._extract_all_addresses(graph)
+            raise ValueError("No Rocket Pool contracts identified in the graph!")
         
         interacting_addresses = set()
         rp_transactions = 0
@@ -252,49 +176,11 @@ class RocketPoolDataFetcher:
         
         log.info(f"Found {rp_transactions} Rocket Pool transactions")
         log.info(f"Extracted {len(interacting_addresses)} addresses that interact with Rocket Pool")
+        
+        if not interacting_addresses:
+            raise ValueError("No addresses found that interact with Rocket Pool contracts!")
+        
         return interacting_addresses
-
-    def _extract_all_addresses(self, graph: TransactionsGraph) -> Set[str]:
-        """Extract all addresses from graph (excluding ROOT contracts)"""
-        all_addresses = set()
-        
-        for address, node in graph.nodes.items():
-            if node.type != NodeType.ROOT:
-                all_addresses.add(address.lower())
-        
-        for edge in graph.edges.values():
-            for transaction in edge.transactions.values():
-                from_addr = transaction.address_from.address.lower()
-                to_addr = transaction.address_to.address.lower()
-                
-                if from_addr in graph.nodes and graph.nodes[from_addr].type != NodeType.ROOT:
-                    all_addresses.add(from_addr)
-                if to_addr in graph.nodes and graph.nodes[to_addr].type != NodeType.ROOT:
-                    all_addresses.add(to_addr)
-        
-        log.info(f"Extracted {len(all_addresses)} unique addresses (excluding ROOT contracts)")
-        return all_addresses
-
-    def get_address_type(self, graph: TransactionsGraph, address: str) -> str:
-        """Determine address type from graph"""
-        normalized_address = address.lower()
-        
-        if normalized_address in graph.nodes:
-            node = graph.nodes[normalized_address]
-            if node.type == NodeType.WALLET:
-                return "wallet"
-            elif node.type in [NodeType.CONTRACT, NodeType.ROOT]:
-                return "contract"
-        
-        # Check in transactions
-        for edge in graph.edges.values():
-            for transaction in edge.transactions.values():
-                if transaction.address_from.address.lower() == normalized_address:
-                    return "wallet" if transaction.address_from.type == AddressType.WALLET else "contract"
-                elif transaction.address_to.address.lower() == normalized_address:
-                    return "wallet" if transaction.address_to.type == AddressType.WALLET else "contract"
-        
-        return "wallet"  # Default assumption
 
     def fetch_etherscan_data(self, address: str) -> Optional[Dict]:
         """Fetch raw transaction data from Etherscan API"""
@@ -341,68 +227,8 @@ class RocketPoolDataFetcher:
         except Exception as e:
             return {"error": f"Etherscan fetch error: {str(e)}"}
 
-    def fetch_subgraph_data(self, address: str) -> Optional[Dict]:
-        """Fetch data from Rocket Pool Subgraph"""
-        try:
-            end_time = datetime.now(timezone.utc)
-            start_time = end_time - timedelta(days=365)
-            start_timestamp = int(start_time.timestamp())
-            
-            subgraph_url = "https://api.thegraph.com/subgraphs/name/rocket-pool/rocketpool"
-            
-            query = """
-            query GetWalletStats($address: String!, $startTimestamp: Int!) {
-                user(id: $address) {
-                    id
-                    deposits(where: {timestamp_gte: $startTimestamp}, orderBy: timestamp, orderDirection: asc) {
-                        id
-                        amount
-                        block
-                        timestamp
-                    }
-                    withdrawals(where: {timestamp_gte: $startTimestamp}, orderBy: timestamp, orderDirection: asc) {
-                        id
-                        amount
-                        block
-                        timestamp
-                    }
-                }
-            }
-            """
-            
-            response = requests.post(
-                subgraph_url,
-                json={"query": query, "variables": {"address": address.lower(), "startTimestamp": start_timestamp}},
-                timeout=30
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if "errors" in data:
-                return {"error": f"Subgraph error: {data['errors']}"}
-            
-            user_data = data.get("data", {}).get("user")
-            if not user_data:
-                return {"transactions": [], "fetch_timestamp": datetime.now(timezone.utc).isoformat()}
-            
-            # Combine deposits and withdrawals
-            all_transactions = []
-            all_transactions.extend(user_data.get("deposits", []))
-            all_transactions.extend(user_data.get("withdrawals", []))
-            
-            return {
-                "transactions": sorted(all_transactions, key=lambda x: int(x["timestamp"])),
-                "fetch_timestamp": datetime.now(timezone.utc).isoformat(),
-                "period_days": 365
-            }
-            
-        except Exception as e:
-            return {"error": f"Subgraph fetch error: {str(e)}"}
-
-    def fetch_address_data(self, address: str, graph: TransactionsGraph) -> AddressRawData:
+    def fetch_address_data(self, address: str, address_type: str) -> AddressRawData:
         """Fetch all data for a single address"""
-        address_type = self.get_address_type(graph, address)
         raw_data = AddressRawData(address=address, address_type=address_type)
         
         # Fetch Etherscan data
@@ -416,7 +242,7 @@ class RocketPoolDataFetcher:
             raw_data.fetch_errors.append("Etherscan: API key not available")
         
         # Fetch Subgraph data
-        subgraph_data = self.fetch_subgraph_data(address)
+        subgraph_data = self.subgraph_client.fetch_user_data(address)
         if subgraph_data:
             if "error" in subgraph_data:
                 raw_data.fetch_errors.append(f"Subgraph: {subgraph_data['error']}")
@@ -425,17 +251,32 @@ class RocketPoolDataFetcher:
         
         return raw_data
 
-    def fetch_all_data(self, addresses: Set[str], graph: TransactionsGraph) -> List[AddressRawData]:
-        """Fetch data for all addresses using multithreading"""
+    def fetch_all_data(self, addresses: Set[str]) -> List[AddressRawData]:
+        """Fetch data for all addresses using batch address type detection"""
+        addresses_list = list(addresses)
+        
+        # Use efficient batch processing from eth_transactions_scraper
+        log.info(f"Getting address types for {len(addresses_list)} addresses...")
+        address_types_enum = get_address_types(addresses_list, network="eth-mainnet")
+        
+        # Convert to strings
+        address_types = {}
+        for addr, addr_type in address_types_enum.items():
+            address_types[addr] = "wallet" if addr_type == AddressType.WALLET else "contract"
+        
         results = []
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_address = {
-                executor.submit(self.fetch_address_data, address, graph): address 
-                for address in addresses
+                executor.submit(
+                    self.fetch_address_data, 
+                    address, 
+                    address_types.get(address, "wallet")
+                ): address 
+                for address in addresses_list
             }
             
-            with tqdm(total=len(addresses), desc="Fetching address data") as pbar:
+            with tqdm(total=len(addresses_list), desc="Fetching address data") as pbar:
                 for future in as_completed(future_to_address):
                     try:
                         result = future.result()
@@ -452,6 +293,9 @@ class RocketPoolDataFetcher:
                     finally:
                         pbar.update(1)
         
+        # Save cache from eth_transactions_scraper
+        _save_address_type_cache()
+        
         return results
 
     def save_raw_data(self, addresses_data: List[AddressRawData], graph_source: str) -> str:
@@ -466,21 +310,23 @@ class RocketPoolDataFetcher:
         
         success_rate = successful_fetches / len(addresses_data) if addresses_data else 0.0
         
-        # Create metadata
+        # Create metadata (simplified without analysis_mode)
         metadata_obj = FetchMetadata(
             fetch_timestamp=datetime.now(timezone.utc).isoformat(),
             graph_source=str(self.graph_file_path),
             addresses_analyzed=len(addresses_data),
-            analysis_mode="all_addresses" if self.analyze_all_addresses else "rocket_pool_only",
             api_sources=["etherscan", "subgraph"],
             success_rate=success_rate
         )
+        
+        # Get current token prices
+        token_prices = self.get_current_token_prices()
         
         # Prepare output data
         output_data = {
             "metadata": asdict(metadata_obj),
             "addresses": {data.address: asdict(data) for data in addresses_data},
-            "token_prices": self.current_token_prices
+            "token_prices": token_prices
         }
         
         # Save to file
@@ -500,20 +346,12 @@ class RocketPoolDataFetcher:
         log.info("=" * 60)
         
         try:
-            # Load graph
             graph = self.load_graph()
+            addresses = self.extract_rocket_pool_interacting_addresses(graph)
             
-            # Extract target addresses
-            addresses = self.extract_target_addresses(graph)
+            log.info(f"Fetching data for {len(addresses)} Rocket Pool users...")
+            addresses_data = self.fetch_all_data(addresses)
             
-            if not addresses:
-                raise ValueError("No addresses found to analyze")
-            
-            # Fetch all data
-            log.info(f"Fetching data for {len(addresses)} addresses...")
-            addresses_data = self.fetch_all_data(addresses, graph)
-            
-            # Save raw data
             output_file = self.save_raw_data(addresses_data, str(self.graph_file_path))
             
             log.info("=" * 60)
@@ -532,20 +370,17 @@ class RocketPoolDataFetcher:
 def main():
     """Main function with hardcoded parameters"""
     current_dir = Path(__file__).resolve().parent
-    project_root = current_dir.parent.parent.parent  # cases/rocketpool/ -> mintegrity/
+    project_root = current_dir.parent.parent.parent
     
-    # Hardcoded configuration
     graph_path = str(project_root / "files" / "rocket_pool_full_graph_90_days.json")
     output_dir = str(project_root / "files" / "rocket_pool_data")
     max_workers = 3
-    analyze_all_addresses = False  # Set to True to analyze all addresses instead of just Rocket Pool interactions
     
     try:
         fetcher = RocketPoolDataFetcher(
             graph_file_path=graph_path,
             output_dir=output_dir,
-            max_workers=max_workers,
-            analyze_all_addresses=analyze_all_addresses
+            max_workers=max_workers
         )
         
         output_file = fetcher.run_fetch()
