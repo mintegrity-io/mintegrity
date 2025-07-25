@@ -1,3 +1,6 @@
+# Data files directory
+files/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -173,3 +176,6 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 /data/full_dataset.csv
+
+# temp files
+*.swp

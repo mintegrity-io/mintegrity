@@ -6,13 +6,15 @@ This script handles all data retrieval operations for Rocket Pool analysis:
 1. Loads pre-built transaction graph
 2. Extracts addresses that interact with Rocket Pool contracts  
 3. Fetches transaction data from Etherscan API (365 days)
-4. Fetches data from Rocket Pool Subgraph (365 days)
-5. Retrieves historical token prices using pre-loaded prices
-6. Saves raw data in structured format for later analysis
+4. Uses pre-saved token prices 
+5. Saves raw data in structured format for later analysis
+
+Usage: python3 rocketpool_data_fetcher.py <graph_file_path>
 
 The output can be used by the analysis script in scripts/stats_vis/
 """
 
+import argparse
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,21 +22,33 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Set, Optional
+from dotenv import load_dotenv
+load_dotenv()
 
 import requests
 from tqdm import tqdm
+import sys
 
+# Getting absolute path to the project's root dir
+current_file = Path(__file__).resolve() 
+project_root = current_file.parent.parent.parent  
+
+# adding to Python path
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# ===== Imports =====
 from scripts.commons import prices
 from scripts.commons.logging_config import get_logger
 from scripts.commons.model import AddressType
+from scripts.commons.etherscan_client import EtherscanClient
 from scripts.graph.model.transactions_graph import TransactionsGraph, NodeType
 from scripts.graph.util.transactions_graph_json import load_graph_from_json
-from scripts.subgraph.client import SubgraphClient
+
 # Use existing functions instead of duplicating
-from scripts.eth_transactions_scraper import get_address_types, _save_address_type_cache
+from scripts.graph.building.eth.eth_transactions_scraper import get_address_types, _save_address_type_cache
 
 log = get_logger()
-
 
 @dataclass
 class AddressRawData:
@@ -42,13 +56,11 @@ class AddressRawData:
     address: str
     address_type: str
     etherscan_data: Optional[Dict] = None
-    subgraph_data: Optional[Dict] = None
     fetch_errors: Optional[List[str]] = None
     
     def __post_init__(self):
         if self.fetch_errors is None:
             self.fetch_errors = []
-
 
 @dataclass
 class FetchMetadata:
@@ -60,10 +72,9 @@ class FetchMetadata:
     success_rate: float
     time_period_days: int = 365
 
-
 class RocketPoolDataFetcher:
     """Fetches raw data from Rocket Pool related APIs"""
-    
+
     def __init__(self,
                  graph_file_path: str,
                  output_dir: str = "files/rocket_pool_data",
@@ -72,10 +83,9 @@ class RocketPoolDataFetcher:
         self.graph_file_path = Path(graph_file_path)
         self.output_dir = Path(output_dir)
         self.max_workers = max_workers
-        self.price_cache = {}
-        
-        # Initialize subgraph client
-        self.subgraph_client = SubgraphClient()
+
+        # Initialize Etherscan client
+        self.etherscan_client = EtherscanClient()
         
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -86,39 +96,8 @@ class RocketPoolDataFetcher:
         log.info(f"Initialized Rocket Pool Data Fetcher")
         log.info(f"Graph file: {self.graph_file_path}")
         log.info(f"Output directory: {self.output_dir}")
-        log.info(f"Mode: Rocket Pool interactions only")
-
-    def get_historical_token_price(self, token_symbol: str, timestamp: int) -> float:
-        """Get historical token price using pre-loaded prices from prices.py"""
-        cache_key = f"{token_symbol.upper()}-{timestamp}"
-        
-        if cache_key in self.price_cache:
-            return self.price_cache[cache_key]
-        
-        try:
-            price = prices.get_token_price_usd(token_symbol, str(timestamp))
-            if price > 0:
-                self.price_cache[cache_key] = price
-                return price
-        except Exception as e:
-            log.debug(f"Price lookup failed for {token_symbol}: {e}")
-        
-        # Fallback to ETH price if token not found
-        if token_symbol.upper() != 'ETH':
-            try:
-                eth_price = prices.get_token_price_usd('ETH', str(timestamp))
-                if eth_price > 0:
-                    log.warning(f"Token {token_symbol} not found, using ETH price as fallback: ${eth_price}")
-                    self.price_cache[cache_key] = eth_price
-                    return eth_price
-            except Exception as e:
-                log.debug(f"ETH fallback price lookup failed: {e}")
-        
-        # Final fallback
-        fallback_price = prices.CURRENT_TOKEN_PRICES.get('ETH', 2500.0)
-        log.warning(f"Using fallback price for {token_symbol}: ${fallback_price}")
-        self.price_cache[cache_key] = fallback_price
-        return fallback_price
+        log.info(f"Etherscan API: {'✅ Available' if self.etherscan_client.is_available() else '❌ Not available'}")
+        log.info(f"Mode: Rocket Pool interactions (Etherscan data only)")
 
     def get_current_token_prices(self) -> Dict[str, float]:
         """Get current token prices using pre-loaded prices from prices.py"""
@@ -182,57 +161,12 @@ class RocketPoolDataFetcher:
         
         return interacting_addresses
 
-    def fetch_etherscan_data(self, address: str) -> Optional[Dict]:
-        """Fetch raw transaction data from Etherscan API"""
-        etherscan_api_key = os.getenv("ETHERSCAN_API_KEY")
-        if not etherscan_api_key:
-            return None
-        
-        try:
-            end_time = datetime.now(timezone.utc)
-            start_time = end_time - timedelta(days=365)
-            
-            url = "https://api.etherscan.io/api"
-            params = {
-                "module": "account",
-                "action": "txlist",
-                "address": address,
-                "startblock": 0,
-                "endblock": 99999999,
-                "page": 1,
-                "offset": 100000,
-                "sort": "asc",
-                "apikey": etherscan_api_key
-            }
-            
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if data["status"] != "1":
-                return {"error": f"Etherscan API error: {data.get('message', 'Unknown error')}"}
-            
-            # Filter for 365 days
-            start_timestamp = int(start_time.timestamp())
-            transactions = [tx for tx in data["result"] 
-                          if int(tx["timeStamp"]) >= start_timestamp]
-            
-            return {
-                "transactions": transactions,
-                "fetch_timestamp": datetime.now(timezone.utc).isoformat(),
-                "period_days": 365
-            }
-            
-        except Exception as e:
-            return {"error": f"Etherscan fetch error: {str(e)}"}
-
     def fetch_address_data(self, address: str, address_type: str) -> AddressRawData:
         """Fetch all data for a single address"""
         raw_data = AddressRawData(address=address, address_type=address_type)
         
         # Fetch Etherscan data
-        etherscan_data = self.fetch_etherscan_data(address)
+        etherscan_data = self.etherscan_client.fetch_transactions(address, days=365)
         if etherscan_data:
             if "error" in etherscan_data:
                 raw_data.fetch_errors.append(f"Etherscan: {etherscan_data['error']}")
@@ -240,14 +174,6 @@ class RocketPoolDataFetcher:
                 raw_data.etherscan_data = etherscan_data
         else:
             raw_data.fetch_errors.append("Etherscan: API key not available")
-        
-        # Fetch Subgraph data
-        subgraph_data = self.subgraph_client.fetch_user_data(address)
-        if subgraph_data:
-            if "error" in subgraph_data:
-                raw_data.fetch_errors.append(f"Subgraph: {subgraph_data['error']}")
-            else:
-                raw_data.subgraph_data = subgraph_data
         
         return raw_data
 
@@ -302,20 +228,20 @@ class RocketPoolDataFetcher:
         """Save raw data to file for later analysis"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Calculate success rate
-        successful_fetches = sum(1 for data in addresses_data 
-                               if not data.fetch_errors or 
-                               (data.etherscan_data and "error" not in data.etherscan_data) or
-                               (data.subgraph_data and "error" not in data.subgraph_data))
+        # Calculate success rate (only Etherscan data now)
+        successful_fetches = sum(
+            1 for data in addresses_data 
+            if data.etherscan_data and "error" not in data.etherscan_data
+        )
         
         success_rate = successful_fetches / len(addresses_data) if addresses_data else 0.0
         
-        # Create metadata (simplified without analysis_mode)
+        # Create metadata
         metadata_obj = FetchMetadata(
             fetch_timestamp=datetime.now(timezone.utc).isoformat(),
             graph_source=str(self.graph_file_path),
             addresses_analyzed=len(addresses_data),
-            api_sources=["etherscan", "subgraph"],
+            api_sources=["etherscan"],  # Only Etherscan now
             success_rate=success_rate
         )
         
@@ -366,13 +292,19 @@ class RocketPoolDataFetcher:
             log.error(f"Data fetching failed: {e}")
             raise
 
-
 def main():
-    """Main function with hardcoded parameters"""
-    current_dir = Path(__file__).resolve().parent
-    project_root = current_dir.parent.parent.parent
+    """Main function with command line argument parsing"""
+    parser = argparse.ArgumentParser(description='Rocket Pool Data Fetcher')
+    parser.add_argument('graph_file', help='Path to the transaction graph JSON file')
     
-    graph_path = str(project_root / "files" / "rocket_pool_full_graph_90_days.json")
+    args = parser.parse_args()
+    
+    # Use provided graph file path
+    graph_path = args.graph_file
+    
+    # Default values for other parameters
+    current_dir = Path(__file__).resolve().parent
+    project_root = current_dir.parent.parent
     output_dir = str(project_root / "files" / "rocket_pool_data")
     max_workers = 3
     
@@ -395,7 +327,6 @@ def main():
         return 1
     
     return 0
-
 
 if __name__ == "__main__":
     exit(main())
