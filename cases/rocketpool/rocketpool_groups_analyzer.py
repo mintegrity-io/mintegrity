@@ -1,71 +1,54 @@
 #!/usr/bin/env python3
 """
-Rocket Pool Groups Analyzer
+Rocket Pool Groups Analyzer - Updated version using utility modules
 Rocket Pool specific implementation for analyzing coordinated groups of addresses.
 
 EXECUTION:
 cd mintegrity
-python cases/rocketpool/rocketpool_groups_analyzer.py
-
-Functionality:
-1. Loads existing Rocket Pool graph
-2. Identifies groups of coordinated addresses using Rocket Pool specific algorithms
-3. Uses general wallet groups analyzer for statistics and visualizations
-4. Creates detailed reports and saves results
+python cases/rocketpool/rocketpool_groups_analyzer.py <graph_file_path>
 
 REQUIREMENTS:
 • ETHERSCAN_API_KEY in .env file for full analysis
 • Internet connection for API requests
-• files/rocket_pool_full_graph_90_days.json
+• Valid graph JSON file path as argument
 """
 
 import sys
-import os
 from pathlib import Path
 from datetime import datetime
 
-# Add project root to path for imports
+# Add project root to path to import from scripts/commons/
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-try:
-    # Import Rocket Pool specific modules
-    from scripts.graph.util.transactions_graph_json import load_graph_from_json
-    from scripts.graph.analysis.wallet_groups.wallet_grouping import (
-        detect_wallet_coordination,
-        identify_wallet_groups
-    )
-    
-    # Import general wallet groups analyzer
-    from scripts.stats_vis.wallet_groups_analyzer import WalletGroupsAnalyzer, FULL_ANALYSIS_AVAILABLE
-    
-    print("✅ Successfully imported all required modules")
-except ImportError as e:
-    print(f"❌ Could not import required modules: {e}")
-    print("Make sure you are running from the mintegrity directory and all modules exist")
-    sys.exit(1)
-
+# Import our utility modules from scripts/commons/
+from scripts.commons.setup_imports import setup_project_imports
+from scripts.commons.api_utils import check_api_capabilities
+from scripts.commons.cli_utils import parse_command_line_args
 
 class RocketPoolGroupsAnalyzer:
     """Rocket Pool specific groups analyzer"""
     
-    # Hardcoded configuration - no CLI
-    GRAPH_FILE_PATH = "files/rocket_pool_full_graph_90_days.json"
+    # Hardcoded configuration
     OUTPUT_DIR = "files/rocket_pool_groups_analysis"
     COORDINATION_THRESHOLD = 5.0
     MIN_GROUP_SIZE = 2
     MAX_WORKERS = 5
     ADDRESSES_FILE_PATH = None  # Optional: path to existing addresses analysis
     
-    def __init__(self):
+    def __init__(self, graph_file_path: str):
+        """Initialize analyzer with graph file path"""
+        self.graph_file_path = graph_file_path
+        
         print("🚀 Initializing Rocket Pool Groups Analyzer")
-        print(f"Graph file: {self.GRAPH_FILE_PATH}")
+        print(f"Graph file: {self.graph_file_path}")
         print(f"Output directory: {self.OUTPUT_DIR}")
         print(f"Coordination threshold: {self.COORDINATION_THRESHOLD}")
         print(f"Minimum group size: {self.MIN_GROUP_SIZE}")
         print(f"Max workers: {self.MAX_WORKERS}")
         
         # Initialize general analyzer
+        from scripts.stats_vis.wallet_groups_analyzer import WalletGroupsAnalyzer
         self.analyzer = WalletGroupsAnalyzer(
             output_dir=self.OUTPUT_DIR,
             max_workers=self.MAX_WORKERS
@@ -74,32 +57,21 @@ class RocketPoolGroupsAnalyzer:
         self.graph = None
         self.wallet_groups = []
         
-        # Show available analysis capabilities
-        if FULL_ANALYSIS_AVAILABLE:
-            print("🚀 Full API analysis available (365-day detailed statistics via Etherscan + historical prices)")
-        else:
-            print("📊 Basic analysis available (graph-based statistics only)")
-            
-        # Check API key
-        etherscan_api_key = os.getenv("ETHERSCAN_API_KEY")
-        if etherscan_api_key:
-            masked_key = etherscan_api_key[:8] + "..." + etherscan_api_key[-4:] if len(etherscan_api_key) > 12 else "***"
-            print(f"✅ ETHERSCAN_API_KEY found: {masked_key}")
-        else:
-            print("⚠️  ETHERSCAN_API_KEY not set")
-            print("   Will use basic graph-based analysis instead")
-            print("   Add ETHERSCAN_API_KEY=your_key to .env file for full functionality")
+        # Use utility function for API capabilities check
+        check_api_capabilities()
     
     def load_rocket_pool_graph(self):
         """Loads Rocket Pool graph from file"""
-        graph_path = Path(self.GRAPH_FILE_PATH)
+        graph_path = Path(self.graph_file_path)
         
         if not graph_path.exists():
             print(f"❌ Graph file not found: {graph_path}")
             print("Please ensure the Rocket Pool graph file exists")
+            import sys
             sys.exit(1)
         
         print(f"📂 Loading Rocket Pool graph from {graph_path}")
+        from scripts.graph.util.transactions_graph_json import load_graph_from_json
         self.graph = load_graph_from_json(str(graph_path))
         print(f"✅ Successfully loaded graph with {len(self.graph.nodes)} nodes and {len(self.graph.edges)} edges")
     
@@ -108,10 +80,13 @@ class RocketPoolGroupsAnalyzer:
         print("🔍 Detecting coordinated wallet groups in Rocket Pool data...")
         
         # Use Rocket Pool specific coordination detection
-        coordination_scores = detect_wallet_coordination(self.graph)
+        from scripts.graph.analysis.wallet_groups.wallet_grouping import (
+            detect_wallet_coordination,
+            identify_wallet_groups,
+            wallet_metrics
+        )
         
-        # Import wallet_metrics from module
-        from scripts.graph.analysis.wallet_groups.wallet_grouping import wallet_metrics
+        coordination_scores = detect_wallet_coordination(self.graph)
         
         self.wallet_groups = identify_wallet_groups(
             coordination_scores,
@@ -157,6 +132,8 @@ class RocketPoolGroupsAnalyzer:
             return
         
         # Analyze addresses
+        from scripts.stats_vis.wallet_groups_analyzer import FULL_ANALYSIS_AVAILABLE
+        
         if FULL_ANALYSIS_AVAILABLE:
             print("🚀 Performing full 365-day analysis via APIs...")
             self.analyzer.analyze_addresses_with_full_stats(list(all_group_addresses), self.graph)
@@ -226,12 +203,17 @@ class RocketPoolGroupsAnalyzer:
 
 def main():
     """Main function"""
-    print("🚀 Starting Rocket Pool Groups Analysis")
-    print(f"Working directory: {Path.cwd()}")
-    print(f"Script location: {Path(__file__).resolve()}")
+    
+    # Use utility function for imports setup 
+    if not setup_project_imports():
+        return 1
+    
+    # Use utility function for command line parsing
+    graph_file_path = parse_command_line_args("Rocket Pool")
     
     try:
-        analyzer = RocketPoolGroupsAnalyzer()
+        # Create and run analyzer
+        analyzer = RocketPoolGroupsAnalyzer(graph_file_path)
         analyzer.run_full_analysis()
         return 0
         
